@@ -1,3 +1,4 @@
+use egui;
 use std::f64::consts::PI;
 use std::iter::zip;
 use std::sync::Arc;
@@ -78,8 +79,9 @@ pub trait SynthModule {
         src_module: SharedSynthModule,
         src_port: u8,
     ) -> Result<(), ()>;
+    fn ui(&mut self, ui: &mut egui::Ui);
 }
-type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
+pub type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
 
 pub struct DCOModule {
     id: String,
@@ -171,6 +173,18 @@ impl SynthModule for DCOModule {
         }
         Err(())
     }
+
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.button("-").clicked() {
+                self.val -= 1.0;
+            }
+            ui.label(self.val.to_string());
+            if ui.button("+").clicked() {
+                self.val += 1.0;
+            }
+        });
+    }
 }
 
 pub struct OutputModule {
@@ -253,4 +267,6 @@ impl SynthModule for OutputModule {
         self.inputs[<usize>::from(input_idx)] = Some((src_module.clone(), src_port));
         Ok(())
     }
+
+    fn ui(&mut self, ui: &mut egui::Ui) {}
 }
