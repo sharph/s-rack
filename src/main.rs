@@ -80,36 +80,95 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]),
         ..Default::default()
     };
+    let mut workspace = SynthModuleWorkspace::new();
+    workspace.modules.push(lfo.clone());
+    workspace.modules.push(osc.clone());
+    workspace.modules.push(output_ui.clone());
     eframe::run_simple_native("s-rack", options, move |ctx, _frame| {
-        let lfo_ui = lfo.clone();
-        let osc_ui = osc.clone();
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::scroll_area::ScrollArea::both()
                 .scroll([true, true])
                 .show(ui, |ui| {
-                    synth_module_container(ui, lfo_ui.clone());
-                    synth_module_container(ui, osc_ui.clone());
-                    synth_module_container(ui, output_ui.clone());
+                    workspace.ui(ui);
                 });
         });
     })
 }
-fn synth_module_container(ui: &egui::Ui, synth_module: synth::SharedSynthModule) {
-    let mut synth_module = synth_module.write().unwrap();
-    let mut id = "synth_module:".to_string();
-    id.push_str(&synth_module.get_id());
-    let ctx = ui.ctx();
-    let area = egui::Area::new(egui::Id::new(id))
-        .default_pos(egui::pos2(100.0, 100.0))
-        .show(ctx, |ui| {
-            egui::Frame::none()
-                .stroke(egui::Stroke {
-                    width: 2.0,
-                    color: egui::Color32::RED,
+
+struct SynthModuleWorkspace {
+    transform: egui::emath::TSTransform,
+    modules: Vec<synth::SharedSynthModule>,
+}
+
+impl SynthModuleWorkspace {
+    fn new() -> Self {
+        Self {
+            transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
+            modules: vec![],
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let (id, rect) = ui.allocate_space(ui.available_size());
+        let response = ui.interact(rect, id, egui::Sense::click_and_drag());
+        // Allow dragging the background as well.
+        if response.dragged() {
+            self.transform.translation += response.drag_delta();
+        }
+
+        // Plot-like reset
+        if response.double_clicked() {
+            self.transform = egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0);
+        }
+
+        let transform =
+            egui::emath::TSTransform::from_translation(ui.min_rect().left_top().to_vec2())
+                * self.transform;
+
+        if let Some(pointer) = ui.ctx().input(|i| i.pointer.hover_pos()) {
+            if response.hovered() {
+                let pointer_in_layer = transform.inverse() * pointer;
+                let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
+                let pan_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
+
+                self.transform = self.transform
+                    * egui::emath::TSTransform::from_translation(pointer_in_layer.to_vec2())
+                    * egui::emath::TSTransform::from_scaling(zoom_delta)
+                    * egui::emath::TSTransform::from_translation(-pointer_in_layer.to_vec2());
+
+                self.transform =
+                    egui::emath::TSTransform::from_translation(pan_delta) * self.transform;
+            }
+        }
+
+        for module in self.modules.iter() {
+            let mut module = module.write().unwrap();
+            let window_layer = ui.layer_id();
+            let id = egui::Area::new(id.with(("module", module.get_id())))
+                .constrain(false)
+                .default_pos(egui::pos2(100.0, 100.0))
+                .order(egui::Order::Middle)
+                .show(ui.ctx(), |ui| {
+                    ui.set_clip_rect(transform.inverse() * rect);
+                    egui::Frame::default()
+                        .rounding(egui::Rounding::same(4.0))
+                        .inner_margin(egui::Margin::same(8.0))
+                        .stroke(ui.ctx().style().visuals.window_stroke)
+                        .fill(ui.style().visuals.panel_fill)
+                        .show(ui, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                            ui.vertical(|ui| {
+                                ui.add(
+                                    egui::widgets::Label::new(module.get_name()).selectable(false),
+                                );
+                                module.ui(ui);
+                            });
+                        });
                 })
-                .inner_margin(10.0)
-                .show(ui, |ui| {
-                    synth_module.ui(ui);
-                });
-        });
+                .response
+                .layer_id;
+            ui.ctx().set_transform_layer(id, transform);
+            ui.ctx().set_sublayer(window_layer, id);
+        }
+    }
 }
