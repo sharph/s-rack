@@ -4,10 +4,8 @@ use cpal::traits::StreamTrait;
 use cpal::SupportedBufferSize;
 use eframe;
 use egui;
-use egui::output;
 use std::sync::Arc;
 use std::sync::RwLock;
-use synth::SharedSynthModule;
 
 mod synth;
 
@@ -144,7 +142,9 @@ impl SynthModuleWorkspace {
         for module in self.modules.iter() {
             let mut module = module.write().unwrap();
             let window_layer = ui.layer_id();
-            let id = egui::Area::new(id.with(("module", module.get_id())))
+            // create area and draw module
+            let area_id = id.with(("module", module.get_id()));
+            let area = egui::Area::new(area_id)
                 .constrain(false)
                 .default_pos(egui::pos2(100.0, 100.0))
                 .order(egui::Order::Middle)
@@ -164,11 +164,96 @@ impl SynthModuleWorkspace {
                                 module.ui(ui);
                             });
                         });
-                })
-                .response
-                .layer_id;
-            ui.ctx().set_transform_layer(id, transform);
-            ui.ctx().set_sublayer(window_layer, id);
+                });
+            // load pivot from memory
+
+            let layer_id = area.response.layer_id;
+            ui.ctx().set_transform_layer(layer_id, transform);
+            ui.ctx().set_sublayer(window_layer, layer_id);
+        }
+
+        for module in self.modules.iter() {
+            let module = module.read().unwrap();
+            let window_layer = ui.layer_id();
+            // create area and draw module
+            let area_id = id.with(("module-connection", module.get_id()));
+            let module_area_id = id.with(("module", module.get_id()));
+            let area = egui::Area::new(area_id)
+                .fixed_pos((0.0, 0.0))
+                .show(ui.ctx(), |ui| {
+                    ui.set_clip_rect(transform.inverse() * rect);
+                    if let Some(state) = egui::AreaState::load(ui.ctx(), module_area_id) {
+                        use egui::epaint::*;
+                        if let (Some(pivot_pos), Some(size)) = (state.pivot_pos, state.size) {
+                            for output_idx in 0..module.get_num_outputs() {
+                                ui.painter().rect_filled(
+                                    egui::Rect {
+                                        min: pivot_pos
+                                            + <Vec2>::from([
+                                                size.x + 10.0,
+                                                (output_idx as f32 * 15.0),
+                                            ]),
+                                        max: pivot_pos
+                                            + <Vec2>::from([
+                                                size.x + 20.0,
+                                                10.0 + (output_idx as f32 * 15.0),
+                                            ]),
+                                    },
+                                    Rounding::ZERO,
+                                    Color32::LIGHT_GREEN,
+                                );
+                            }
+                            for (input_idx, input_module) in module.get_inputs().iter().enumerate()
+                            {
+                                ui.painter().rect_filled(
+                                    egui::Rect {
+                                        min: pivot_pos
+                                            + <Vec2>::from([-20.0, (input_idx as f32 * 15.0)]),
+                                        max: pivot_pos
+                                            + <Vec2>::from([
+                                                -10.0,
+                                                10.0 + (input_idx as f32 * 15.0),
+                                            ]),
+                                    },
+                                    Rounding::ZERO,
+                                    Color32::LIGHT_GREEN,
+                                );
+                                if let Some((input_module, port)) = input_module {
+                                    let input_module = input_module.read().unwrap();
+                                    let input_module_area_id =
+                                        id.with(("module", input_module.get_id()));
+                                    if let Some(input_module_area_state) =
+                                        egui::AreaState::load(ui.ctx(), input_module_area_id)
+                                    {
+                                        if let (Some(src_pivot_pos), Some(src_pivot_size)) = (
+                                            input_module_area_state.pivot_pos,
+                                            input_module_area_state.size,
+                                        ) {
+                                            ui.painter().line_segment(
+                                                [
+                                                    pivot_pos
+                                                        + <Vec2>::from([
+                                                            -15.0,
+                                                            5.0 + (input_idx as f32 * 15.0),
+                                                        ]),
+                                                    src_pivot_pos
+                                                        + <Vec2>::from([
+                                                            src_pivot_size.x + 15.0,
+                                                            5.0 + (*port as f32 * 15.0),
+                                                        ]),
+                                                ],
+                                                Stroke::new(2.0, Color32::LIGHT_GREEN),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            ui.ctx()
+                .set_transform_layer(area.response.layer_id, transform);
+            ui.ctx().set_sublayer(window_layer, area.response.layer_id);
         }
     }
 }
