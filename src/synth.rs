@@ -136,8 +136,8 @@ impl SynthModule for DCOModule {
             input_buf = Some(input_module.get_output(*port).unwrap());
         }
         for i in 0..self.buf.len() {
+            self.buf[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
             self.pos = self.pos + (self.get_freq_in_hz(input_buf, i) / (self.sample_rate as f64));
-            self.buf[i] = (self.pos * PI * 2.0).sin() as ControlVoltage
         }
         self.pos = self.pos % 1.0;
     }
@@ -184,6 +184,28 @@ impl SynthModule for DCOModule {
                 self.val += 1.0;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod dco_tests {
+    use super::*;
+
+    #[test]
+    fn produces_440() {
+        let mut module = DCOModule::new(17, 440 * 4); // notice odd sized buffer
+        module.calc();
+        {
+            let buf = module.get_output(0).unwrap();
+            assert_eq!(buf[0], 0.0);
+            assert!((buf[1] - 1.0).abs() < 0.00001);
+            assert!(buf[2].abs() < 0.00001);
+            assert!((buf[3] + 1.0).abs() < 0.00001);
+            assert!(buf[4].abs() < 0.00001);
+        }
+        module.calc();
+        let buf = module.get_output(0).unwrap();
+        assert!((buf[0] - 1.0).abs() < 0.00001); // should continue smoothly into next buffer
     }
 }
 
