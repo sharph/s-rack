@@ -4,6 +4,8 @@ use cpal::traits::StreamTrait;
 use cpal::SupportedBufferSize;
 use eframe;
 use egui;
+use std::borrow::BorrowMut;
+use std::fmt::write;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -43,7 +45,6 @@ fn main() -> eframe::Result {
     );
     synth::connect(lfo.clone(), 0, osc.clone(), 0).unwrap();
     synth::connect(osc.clone(), 0, output.clone(), 0).unwrap();
-    synth::connect(osc.clone(), 0, output.clone(), 1).unwrap();
     let mut src_buf_pos: usize = 0;
     let plan = synth::plan_execution(output.clone());
     let output_ui = output.clone();
@@ -93,6 +94,40 @@ fn main() -> eframe::Result {
     })
 }
 
+const SYNTH_HANDLE_SIZE: f32 = 10.0;
+const SYNTH_HANDLE_PADDING: f32 = 2.0;
+
+enum SynthModulePort {
+    Input(synth::SharedSynthModule, u8),
+    Output(synth::SharedSynthModule, u8),
+}
+
+struct SynthModuleHandle {}
+
+impl SynthModuleHandle {
+    fn new() -> Self {
+        Self {}
+    }
+
+    fn layout_in_ui(&mut self, ui: &mut egui::Ui) -> (egui::Id, egui::Rect, egui::Response) {
+        let (id, rect) = ui.allocate_space([SYNTH_HANDLE_SIZE, SYNTH_HANDLE_SIZE].into());
+        (
+            id,
+            rect,
+            ui.interact(rect, id, egui::Sense::click_and_drag()),
+        )
+    }
+}
+
+impl egui::Widget for &mut SynthModuleHandle {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let (id, rect, response) = self.layout_in_ui(ui);
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::ZERO, egui::Color32::RED);
+        response
+    }
+}
+
 struct SynthModuleWorkspace {
     transform: egui::emath::TSTransform,
     modules: Vec<synth::SharedSynthModule>,
@@ -139,8 +174,8 @@ impl SynthModuleWorkspace {
             }
         }
 
-        for module in self.modules.iter() {
-            let mut module = module.write().unwrap();
+        for module_ref in self.modules.iter() {
+            let mut module = module_ref.write().unwrap();
             let window_layer = ui.layer_id();
             // create area and draw module
             let area_id = id.with(("module", module.get_id()));
@@ -150,20 +185,64 @@ impl SynthModuleWorkspace {
                 .order(egui::Order::Middle)
                 .show(ui.ctx(), |ui| {
                     ui.set_clip_rect(transform.inverse() * rect);
-                    egui::Frame::default()
-                        .rounding(egui::Rounding::same(4.0))
-                        .inner_margin(egui::Margin::same(8.0))
-                        .stroke(ui.ctx().style().visuals.window_stroke)
-                        .fill(ui.style().visuals.panel_fill)
-                        .show(ui, |ui| {
-                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                            ui.vertical(|ui| {
-                                ui.add(
-                                    egui::widgets::Label::new(module.get_name()).selectable(false),
-                                );
-                                module.ui(ui);
-                            });
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| {
+                            for idx in 0..module.get_num_inputs() {
+                                let response = ui.add(&mut SynthModuleHandle::new());
+                                response.dnd_set_drag_payload(SynthModulePort::Input(
+                                    module_ref.clone(),
+                                    idx,
+                                ));
+                                if let Some(payload) =
+                                    response.dnd_release_payload::<SynthModulePort>()
+                                {
+                                    if let SynthModulePort::Output(output_module, output_port) =
+                                        Arc::as_ref(&payload)
+                                    {
+                                        module
+                                            .set_input(idx, output_module.clone(), *output_port)
+                                            .unwrap();
+                                    }
+                                }
+                            }
                         });
+                        egui::Frame::default()
+                            .rounding(egui::Rounding::same(4.0))
+                            .inner_margin(egui::Margin::same(8.0))
+                            .stroke(ui.ctx().style().visuals.window_stroke)
+                            .fill(ui.style().visuals.panel_fill)
+                            .show(ui, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                ui.vertical(|ui| {
+                                    ui.add(
+                                        egui::widgets::Label::new(module.get_name())
+                                            .selectable(false),
+                                    );
+                                    module.ui(ui);
+                                });
+                            });
+                        ui.vertical(|ui| {
+                            for idx in 0..module.get_num_outputs() {
+                                let response = ui.add(&mut SynthModuleHandle::new());
+                                response.dnd_set_drag_payload(SynthModulePort::Output(
+                                    module_ref.clone(),
+                                    idx,
+                                ));
+                                if let Some(payload) =
+                                    response.dnd_release_payload::<SynthModulePort>()
+                                {
+                                    if let SynthModulePort::Input(input_module, input_port) =
+                                        Arc::as_ref(&payload)
+                                    {
+                                        let mut input_module = input_module.write().unwrap();
+                                        input_module
+                                            .set_input(*input_port, module_ref.clone(), idx)
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                        });
+                    });
                 });
             // load pivot from memory
 
@@ -185,39 +264,8 @@ impl SynthModuleWorkspace {
                     if let Some(state) = egui::AreaState::load(ui.ctx(), module_area_id) {
                         use egui::epaint::*;
                         if let (Some(pivot_pos), Some(size)) = (state.pivot_pos, state.size) {
-                            for output_idx in 0..module.get_num_outputs() {
-                                ui.painter().rect_filled(
-                                    egui::Rect {
-                                        min: pivot_pos
-                                            + <Vec2>::from([
-                                                size.x + 10.0,
-                                                (output_idx as f32 * 15.0),
-                                            ]),
-                                        max: pivot_pos
-                                            + <Vec2>::from([
-                                                size.x + 20.0,
-                                                10.0 + (output_idx as f32 * 15.0),
-                                            ]),
-                                    },
-                                    Rounding::ZERO,
-                                    Color32::LIGHT_GREEN,
-                                );
-                            }
                             for (input_idx, input_module) in module.get_inputs().iter().enumerate()
                             {
-                                ui.painter().rect_filled(
-                                    egui::Rect {
-                                        min: pivot_pos
-                                            + <Vec2>::from([-20.0, (input_idx as f32 * 15.0)]),
-                                        max: pivot_pos
-                                            + <Vec2>::from([
-                                                -10.0,
-                                                10.0 + (input_idx as f32 * 15.0),
-                                            ]),
-                                    },
-                                    Rounding::ZERO,
-                                    Color32::LIGHT_GREEN,
-                                );
                                 if let Some((input_module, port)) = input_module {
                                     let input_module = input_module.read().unwrap();
                                     let input_module_area_id =
@@ -231,18 +279,28 @@ impl SynthModuleWorkspace {
                                         ) {
                                             ui.painter().line_segment(
                                                 [
-                                                    pivot_pos
-                                                        + <Vec2>::from([
-                                                            -15.0,
-                                                            5.0 + (input_idx as f32 * 15.0),
-                                                        ]),
-                                                    src_pivot_pos
-                                                        + <Vec2>::from([
-                                                            src_pivot_size.x + 15.0,
-                                                            5.0 + (*port as f32 * 15.0),
-                                                        ]),
-                                                ],
-                                                Stroke::new(2.0, Color32::LIGHT_GREEN),
+                                                    [
+                                                        pivot_pos.x + (SYNTH_HANDLE_SIZE / 2.0),
+                                                        pivot_pos.y
+                                                            + (SYNTH_HANDLE_SIZE / 2.0)
+                                                            + (input_idx as f32
+                                                                * (SYNTH_HANDLE_SIZE
+                                                                    + SYNTH_HANDLE_PADDING)),
+                                                    ]
+                                                    .into(),
+                                                    [
+                                                        src_pivot_pos.x + src_pivot_size.x
+                                                            - (SYNTH_HANDLE_SIZE / 2.0),
+                                                        src_pivot_pos.y
+                                                            + (SYNTH_HANDLE_SIZE / 2.0)
+                                                            + (*port as f32
+                                                                * (SYNTH_HANDLE_SIZE
+                                                                    + SYNTH_HANDLE_PADDING)),
+                                                    ]
+                                                    .into(),
+                                                ]
+                                                .into(),
+                                                Stroke::new(1.0, Color32::RED),
                                             );
                                         }
                                     }
