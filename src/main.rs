@@ -57,15 +57,17 @@ fn main() -> eframe::Result {
             },
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let out = output.clone();
-                let src_buf = &out.read().unwrap().bufs.clone();
-                for dst_buf_pos in 0..data.len() {
-                    let channel = dst_buf_pos % <usize>::from(channels);
-                    data[dst_buf_pos] = src_buf[channel][src_buf_pos];
-                    if dst_buf_pos % <usize>::from(channels) == <usize>::from(channels) - 1 {
-                        src_buf_pos += 1;
-                        if src_buf_pos >= buffer_size {
-                            synth::execute(&plan);
-                            src_buf_pos = 0;
+                {
+                    let src_buf = &out.write().unwrap().bufs.clone();
+                    for dst_buf_pos in 0..data.len() {
+                        let channel = dst_buf_pos % <usize>::from(channels);
+                        data[dst_buf_pos] = src_buf[channel][src_buf_pos];
+                        if dst_buf_pos % <usize>::from(channels) == <usize>::from(channels) - 1 {
+                            src_buf_pos += 1;
+                            if src_buf_pos >= buffer_size {
+                                synth::execute(&plan);
+                                src_buf_pos = 0;
+                            }
                         }
                     }
                 }
@@ -193,6 +195,9 @@ impl SynthModuleWorkspace {
                                     module_ref.clone(),
                                     idx,
                                 ));
+                                if response.secondary_clicked() {
+                                    module.disconnect_input(idx).unwrap();
+                                }
                                 if let Some(payload) =
                                     response.dnd_release_payload::<SynthModulePort>()
                                 {
@@ -207,8 +212,8 @@ impl SynthModuleWorkspace {
                             }
                         });
                         egui::Frame::default()
-                            .rounding(egui::Rounding::same(4.0))
-                            .inner_margin(egui::Margin::same(8.0))
+                            .rounding(egui::Rounding::same(2.0))
+                            .inner_margin(egui::Margin::same(12.0))
                             .stroke(ui.ctx().style().visuals.window_stroke)
                             .fill(ui.style().visuals.panel_fill)
                             .show(ui, |ui| {
@@ -234,8 +239,8 @@ impl SynthModuleWorkspace {
                                     if let SynthModulePort::Input(input_module, input_port) =
                                         Arc::as_ref(&payload)
                                     {
-                                        let mut input_module = input_module.write().unwrap();
-                                        input_module
+                                        let mut sink_module = input_module.write().unwrap();
+                                        sink_module
                                             .set_input(*input_port, module_ref.clone(), idx)
                                             .unwrap();
                                     }
@@ -263,7 +268,8 @@ impl SynthModuleWorkspace {
                     ui.set_clip_rect(transform.inverse() * rect);
                     if let Some(state) = egui::AreaState::load(ui.ctx(), module_area_id) {
                         use egui::epaint::*;
-                        if let (Some(pivot_pos), Some(size)) = (state.pivot_pos, state.size) {
+                        if let (Some(pivot_pos), Some(_size)) = (state.pivot_pos, state.size) {
+                            // draw connections
                             for (input_idx, input_module) in module.get_inputs().iter().enumerate()
                             {
                                 if let Some((input_module, port)) = input_module {

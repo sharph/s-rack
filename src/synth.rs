@@ -79,6 +79,7 @@ pub trait SynthModule {
         src_module: SharedSynthModule,
         src_port: u8,
     ) -> Result<(), ()>;
+    fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
     fn ui(&mut self, ui: &mut egui::Ui);
 }
 pub type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
@@ -172,6 +173,14 @@ impl SynthModule for DCOModule {
             return Ok(());
         }
         Err(())
+    }
+
+    fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
+        if input_idx != 0 {
+            return Err(());
+        }
+        self.input = None;
+        Ok(())
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
@@ -282,11 +291,15 @@ impl SynthModule for OutputModule {
         if input_idx >= self.get_num_inputs() {
             return Err(());
         }
-        let src_module_read = src_module.read().unwrap();
-        if src_port >= src_module_read.get_num_outputs() {
+        self.inputs[<usize>::from(input_idx)] = Some((src_module.clone(), src_port));
+        Ok(())
+    }
+
+    fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
+        if input_idx >= self.get_num_inputs() {
             return Err(());
         }
-        self.inputs[<usize>::from(input_idx)] = Some((src_module.clone(), src_port));
+        self.inputs[input_idx as usize] = None;
         Ok(())
     }
 
