@@ -41,6 +41,9 @@ pub fn plan_execution(
                     if !execution_list
                         .iter()
                         .any(|(to_compare, _)| shared_are_eq(&input, to_compare))
+                        && !to_concat
+                            .iter()
+                            .any(|(to_compare, _)| shared_are_eq(&input, to_compare))
                     {
                         to_concat.push((input, false));
                     }
