@@ -42,16 +42,16 @@ fn main() -> eframe::Result {
         "Sample rate: {}, Buffer size: {}, channels: {}",
         sample_rate, buffer_size, channels
     );
-    let mut workspace = ui::SynthModuleWorkspace::new(audio_config);
+    let mut workspace = ui::SynthModuleWorkspace::new(audio_config.clone());
     let mut src_buf_pos: usize = 0;
     let output_ref = workspace.output.clone();
     let plan_ref = workspace.plan.clone();
     let stream = device
         .build_output_stream(
             &cpal::StreamConfig {
-                channels: channels.into(),
-                sample_rate: cpal::SampleRate(sample_rate),
-                buffer_size: cpal::BufferSize::Fixed(buffer_size.try_into().unwrap()),
+                channels: audio_config.channels as u16,
+                sample_rate: cpal::SampleRate(audio_config.sample_rate as u32),
+                buffer_size: cpal::BufferSize::Fixed(audio_config.buffer_size.try_into().unwrap()),
             },
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let plan = plan_ref.lock().unwrap();
@@ -66,12 +66,14 @@ fn main() -> eframe::Result {
                         src_buf = Some(output.bufs.clone());
                     }
                     for dst_buf_pos in 0..data.len() {
-                        let channel = dst_buf_pos % <usize>::from(channels);
+                        let channel = dst_buf_pos % <usize>::from(audio_config.channels);
                         match &src_buf {
                             Some(buf) => data[dst_buf_pos] = buf[channel][src_buf_pos],
                             None => data[dst_buf_pos] = 0.0,
                         }
-                        if dst_buf_pos % <usize>::from(channels) == <usize>::from(channels) - 1 {
+                        if dst_buf_pos % <usize>::from(audio_config.channels)
+                            == <usize>::from(audio_config.channels) - 1
+                        {
                             src_buf_pos += 1;
                             if src_buf_pos >= buffer_size {
                                 synth::execute(&plan);
