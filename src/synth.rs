@@ -138,6 +138,7 @@ pub struct OscillatorModule {
     square: Box<[ControlVoltage]>,
     saw: Box<[ControlVoltage]>,
     pos: f64,
+    antialiasing: bool,
 }
 
 impl OscillatorModule {
@@ -151,6 +152,7 @@ impl OscillatorModule {
             square: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
             saw: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
             pos: 0.0,
+            antialiasing: true,
         }
     }
 
@@ -159,6 +161,24 @@ impl OscillatorModule {
             Some(buf) => 440.0 * (2.0_f64.powf(<f64>::from(buf[i]) + <f64>::from(self.val))),
             None => 440.0 * (2.0_f64.powf(<f64>::from(self.val))),
         }
+    }
+
+    fn poly_blep(t: f64, dt: f64) -> f64 {
+        if dt == 0.0 {
+            return 0.0;
+        }
+        // 0 <= t < 1
+        let mut t = t;
+        if t < dt {
+            t /= dt;
+            return t + t - t * t - 1.0;
+        }
+        // -1 < t < 0
+        else if t > 1.0 - dt {
+            t = (t - 1.0) / dt;
+            return t * t + t + t + 1.0;
+        }
+        0.0
     }
 
     fn get_name() -> String {
@@ -192,10 +212,25 @@ impl SynthModule for OscillatorModule {
             input_buf = Some(input_module.get_output(*port).unwrap());
         }
         for i in 0..self.sine.len() {
+            let delta = self.get_freq_in_hz(input_buf, i) / (self.sample_rate as f64);
             self.sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
-            self.square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 };
-            self.saw[i] = self.pos as ControlVoltage * 2.0 - 1.0;
-            self.pos = self.pos + (self.get_freq_in_hz(input_buf, i) / (self.sample_rate as f64));
+
+            self.square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 }
+                - if self.antialiasing {
+                    (Self::poly_blep(self.pos, delta)
+                        - Self::poly_blep((self.pos + 0.5) % 1.0, delta)) as f32
+                } else {
+                    0.0
+                };
+
+            self.saw[i] = (self.pos as ControlVoltage * 2.0 - 1.0)
+                - if self.antialiasing {
+                    Self::poly_blep(self.pos, delta) as f32
+                } else {
+                    0.0
+                };
+
+            self.pos = self.pos + delta;
             self.pos = self.pos % 1.0;
         }
     }
@@ -250,6 +285,7 @@ impl SynthModule for OscillatorModule {
                 self.val += 1.0;
             }
         });
+        ui.checkbox(&mut self.antialiasing, "Antialiasing");
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -263,7 +299,11 @@ mod dco_tests {
 
     #[test]
     fn produces_440() {
-        let mut module = OscillatorModule::new(17, 440 * 4); // notice odd sized buffer
+        let mut module = OscillatorModule::new(&AudioConfig {
+            sample_rate: 440 * 4,
+            buffer_size: 17,
+            channels: 2,
+        }); // notice odd sized buffer
         module.calc();
         {
             let buf = module.get_output(0).unwrap();
