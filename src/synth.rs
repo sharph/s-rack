@@ -416,9 +416,209 @@ impl SynthModule for OutputModule {
     }
 }
 
+struct TransitionDetector {
+    last: bool,
+}
+
+impl TransitionDetector {
+    fn new() -> Self {
+        Self { last: true }
+    }
+
+    fn is_above_threshold(val: &ControlVoltage) -> bool {
+        *val > 0.0
+    }
+
+    /// Returns true if current val is above 0.0 but last
+    /// val was 0.0 or below.
+    fn is_transition(&mut self, val: &ControlVoltage) -> bool {
+        let above_threshold = Self::is_above_threshold(val);
+        let is_transition = above_threshold && !self.last;
+        self.last = above_threshold;
+        is_transition
+    }
+}
+
+struct GridSequencerModule {
+    id: String,
+    cv_out: Box<[ControlVoltage]>,
+    gate_out: Box<[ControlVoltage]>,
+    sequence: Vec<Option<u16>>,
+    octaves: u8,
+    steps_per_octave: u16,
+    step_in: Option<(SharedSynthModule, u8)>,
+    current_step: u16,
+    transition_detector: TransitionDetector,
+    last: ControlVoltage,
+}
+
+impl GridSequencerModule {
+    fn new(audio_config: &AudioConfig) -> Self {
+        GridSequencerModule {
+            id: uuid::Uuid::new_v4().into(),
+            cv_out: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            gate_out: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            octaves: 2,
+            sequence: vec![None; 64],
+            step_in: None,
+            current_step: 0,
+            steps_per_octave: 12,
+            transition_detector: TransitionDetector::new(),
+            last: 0.0,
+        }
+    }
+
+    fn get_name() -> String {
+        "Grid Sequencer".to_string()
+    }
+}
+
+impl SynthModule for GridSequencerModule {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let num_rows = self.octaves as u16 * self.steps_per_octave;
+        egui::Grid::new("grid::".to_string() + &self.get_id())
+            .min_col_width(0.0)
+            .max_col_width(7.0)
+            .min_row_height(0.0)
+            .spacing([1.0, 1.0])
+            .show(ui, |ui| {
+                for row in (0..num_rows).into_iter().rev() {
+                    for col in 0..self.sequence.len() {
+                        let (id, rect) = ui.allocate_space([7.0, 7.0].into());
+                        let mut color = egui::Color32::LIGHT_GRAY;
+                        if col % 4 == 0 {
+                            color = egui::Color32::GRAY;
+                        }
+                        if row % self.steps_per_octave == 0 {
+                            color = egui::Color32::YELLOW;
+                        }
+                        if usize::from(self.current_step) == col {
+                            color = egui::Color32::RED;
+                        }
+                        if self.sequence[usize::from(col)] == Some(row) {
+                            color = egui::Color32::BLACK;
+                        }
+                        ui.painter().rect_filled(rect, 1.0, color);
+                        if ui.interact(rect, id, egui::Sense::click()).clicked() {
+                            if self.sequence[usize::from(col)] == Some(row) {
+                                self.sequence[usize::from(col)] = None;
+                            } else {
+                                self.sequence[usize::from(col)] = Some(row);
+                            }
+                        }
+                    }
+                    ui.end_row();
+                }
+            });
+    }
+
+    fn calc(&mut self) {
+        let mut step_in_buf: Option<&[ControlVoltage]> = None;
+        let step_in_module;
+        if let Some((input, port)) = &self.step_in {
+            step_in_module = input.read().unwrap();
+            step_in_buf = Some(step_in_module.get_output(*port).unwrap());
+        }
+        for idx in 0..self.cv_out.len() {
+            let step_in = match step_in_buf {
+                Some(v) => &v[idx],
+                None => &0.0,
+            };
+            if self.transition_detector.is_transition(step_in) {
+                self.current_step += 1;
+            }
+            let mut current_step: usize = self.current_step.into();
+            if current_step >= self.sequence.len() {
+                self.current_step = 0;
+                current_step = 0;
+            }
+            (self.cv_out[idx], self.gate_out[idx]) = match self.sequence[current_step] {
+                Some(val) => (
+                    val as ControlVoltage * (1.0 / self.steps_per_octave as ControlVoltage),
+                    0.0,
+                ),
+                None => (self.last, 0.0),
+            };
+            self.last = self.cv_out[idx];
+        }
+    }
+
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn get_name(&self) -> String {
+        Self::get_name()
+    }
+
+    fn get_input(&self, input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
+        match input_idx {
+            0 => Ok(self.step_in.clone()),
+            _ => Err(()),
+        }
+    }
+
+    fn set_input(
+        &mut self,
+        input_idx: u8,
+        src_module: SharedSynthModule,
+        src_port: u8,
+    ) -> Result<(), ()> {
+        match input_idx {
+            0 => {
+                self.step_in = Some((src_module, src_port));
+                Ok(())
+            }
+            _ => Err(()),
+        }
+    }
+
+    fn get_inputs(&self) -> Vec<Option<(SharedSynthModule, u8)>> {
+        (0..self.get_num_inputs())
+            .map(|idx| self.get_input(idx).unwrap())
+            .collect()
+    }
+
+    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+        match output_idx {
+            0 => Ok(&self.cv_out),
+            1 => Ok(&self.gate_out),
+            _ => Err(()),
+        }
+    }
+
+    fn get_num_inputs(&self) -> u8 {
+        1
+    }
+
+    fn get_num_outputs(&self) -> u8 {
+        2
+    }
+
+    fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
+        match input_idx {
+            0 => {
+                self.step_in = None;
+                Ok(())
+            }
+            _ => Err(()),
+        }
+    }
+}
+
 pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModule>)> {
-    vec![(
-        OscillatorModule::get_name(),
-        Box::new(|audio_config| Arc::new(RwLock::new(OscillatorModule::new(audio_config)))),
-    )]
+    vec![
+        (
+            OscillatorModule::get_name(),
+            Box::new(|audio_config| Arc::new(RwLock::new(OscillatorModule::new(audio_config)))),
+        ),
+        (
+            GridSequencerModule::get_name(),
+            Box::new(|audio_config| Arc::new(RwLock::new(GridSequencerModule::new(audio_config)))),
+        ),
+    ]
 }
