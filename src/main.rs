@@ -48,8 +48,6 @@ fn main() -> eframe::Result {
         "Sample rate: {}, Buffer size: {}, channels: {}",
         sample_rate, buffer_size, channels
     );
-    synth::connect(lfo.clone(), 0, osc.clone(), 0).unwrap();
-    synth::connect(osc.clone(), 0, output.clone(), 0).unwrap();
     let mut workspace = ui::SynthModuleWorkspace::new();
     let mut src_buf_pos: usize = 0;
     let output_ref = workspace.output.clone();
