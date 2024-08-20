@@ -164,6 +164,7 @@ impl OscillatorModule {
     }
 
     fn poly_blep(t: f64, dt: f64) -> f64 {
+        // adopted from https://www.martin-finke.de/articles/audio-plugins-018-polyblep-oscillator/
         if dt == 0.0 {
             return 0.0;
         }
