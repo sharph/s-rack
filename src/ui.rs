@@ -1,4 +1,4 @@
-use crate::synth::{self, SharedSynthModule};
+use crate::synth;
 use egui;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -42,15 +42,17 @@ pub struct SynthModuleWorkspace {
     modules: Vec<synth::SharedSynthModule>,
     pub plan: Arc<Mutex<Vec<synth::SharedSynthModule>>>,
     pub output: Arc<Mutex<Option<synth::SharedSynthModule>>>,
+    audio_config: synth::AudioConfig,
 }
 
 impl SynthModuleWorkspace {
-    pub fn new() -> Self {
+    pub fn new(audio_config: synth::AudioConfig) -> Self {
         Self {
             transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
             modules: vec![],
             plan: Arc::new(Mutex::new(vec![])),
             output: Arc::new(Mutex::new(None)),
+            audio_config,
         }
     }
 
@@ -58,7 +60,7 @@ impl SynthModuleWorkspace {
         self.modules.push(module);
     }
 
-    pub fn get_output(&mut self) -> Result<SharedSynthModule, ()> {
+    pub fn get_output(&mut self) -> Result<synth::SharedSynthModule, ()> {
         for module in self.modules.iter() {
             if let Some(_) = module
                 .read()

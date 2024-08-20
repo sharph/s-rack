@@ -2,10 +2,16 @@ use egui;
 use std::any::Any;
 use std::f64::consts::PI;
 use std::iter::zip;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
 use uuid;
+
+#[derive(Clone)]
+pub struct AudioConfig {
+    pub sample_rate: u16,
+    pub buffer_size: usize,
+    pub channels: u8,
+}
 
 pub fn execute(plan: &Vec<SharedSynthModule>) {
     for ssm in plan {
@@ -124,7 +130,7 @@ pub struct OscillatorModule {
     id: String,
     pub val: ControlVoltage,
     input: Option<(SharedSynthModule, u8)>,
-    sample_rate: u32,
+    sample_rate: u16,
     sine: Box<[ControlVoltage]>,
     square: Box<[ControlVoltage]>,
     saw: Box<[ControlVoltage]>,
@@ -132,15 +138,15 @@ pub struct OscillatorModule {
 }
 
 impl OscillatorModule {
-    pub fn new(buffer_size: usize, sample_rate: u32) -> OscillatorModule {
+    pub fn new(audio_config: &AudioConfig) -> OscillatorModule {
         OscillatorModule {
             id: uuid::Uuid::new_v4().into(),
             input: None,
             val: 0.0,
-            sample_rate,
-            sine: (0..buffer_size).map(|_| 0.0).collect(),
-            square: (0..buffer_size).map(|_| 0.0).collect(),
-            saw: (0..buffer_size).map(|_| 0.0).collect(),
+            sample_rate: audio_config.sample_rate,
+            sine: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            square: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            saw: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
             pos: 0.0,
         }
     }
@@ -273,13 +279,13 @@ pub struct OutputModule {
 }
 
 impl OutputModule {
-    pub fn new(buffer_size: usize, _sample_rate: u32, channels: u8) -> OutputModule {
+    pub fn new(audio_config: &AudioConfig) -> OutputModule {
         OutputModule {
             id: uuid::Uuid::new_v4().into(),
-            bufs: (0..channels)
-                .map(|_| (0..buffer_size).map(|_| 0.0).collect())
+            bufs: (0..audio_config.channels)
+                .map(|_| (0..audio_config.buffer_size).map(|_| 0.0).collect())
                 .collect(),
-            inputs: (0..channels).map(|_| None).collect(),
+            inputs: (0..audio_config.channels).map(|_| None).collect(),
         }
     }
 }

@@ -28,27 +28,21 @@ fn main() -> eframe::Result {
         SupportedBufferSize::Unknown => 4096,
     };
     let sample_rate = supported_config.sample_rate().0;
-    let mut channels = <u8>::try_from(supported_config.channels()).unwrap();
-    channels = 2;
-    let lfo = Arc::new(RwLock::new(synth::OscillatorModule::new(
+    let channels = <u8>::try_from(supported_config.channels()).unwrap();
+    let audio_config = synth::AudioConfig {
+        channels: 2,
+        sample_rate: sample_rate as u16,
         buffer_size,
-        sample_rate,
-    )));
+    };
+    let lfo = Arc::new(RwLock::new(synth::OscillatorModule::new(&audio_config)));
     lfo.write().unwrap().val = -9.0;
-    let osc = Arc::new(RwLock::new(synth::OscillatorModule::new(
-        buffer_size,
-        sample_rate,
-    )));
-    let output = Arc::new(RwLock::new(synth::OutputModule::new(
-        buffer_size,
-        sample_rate,
-        channels,
-    )));
+    let osc = Arc::new(RwLock::new(synth::OscillatorModule::new(&audio_config)));
+    let output = Arc::new(RwLock::new(synth::OutputModule::new(&audio_config)));
     println!(
         "Sample rate: {}, Buffer size: {}, channels: {}",
         sample_rate, buffer_size, channels
     );
-    let mut workspace = ui::SynthModuleWorkspace::new();
+    let mut workspace = ui::SynthModuleWorkspace::new(audio_config);
     let mut src_buf_pos: usize = 0;
     let output_ref = workspace.output.clone();
     let plan_ref = workspace.plan.clone();
