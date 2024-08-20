@@ -1,6 +1,8 @@
 use egui;
+use std::any::Any;
 use std::f64::consts::PI;
 use std::iter::zip;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
 use uuid;
@@ -11,44 +13,65 @@ pub fn execute(plan: &Vec<SharedSynthModule>) {
     }
 }
 
-pub fn plan_execution(output: SharedSynthModule) -> Vec<SharedSynthModule> {
+pub fn plan_execution(
+    output: SharedSynthModule,
+    all_modules: &Vec<SharedSynthModule>,
+    plan: &mut Vec<SharedSynthModule>,
+) -> () {
     let mut execution_list: Vec<(SharedSynthModule, bool)> = vec![(output, false)];
+    let mut all_modules = all_modules.clone();
     let mut to_concat: Vec<(SharedSynthModule, bool)> = Vec::new();
     loop {
-        if let Some((idx, (to_search, _searched))) = execution_list
+        if let Some((idx, (to_search, searched))) = execution_list
             .iter()
             .enumerate()
-            .filter(|(_idx, (_sm, searched))| !searched)
+            .filter(|(_idx, (_to_search, searched))| !searched)
             .next()
         {
+            // is there any module in our list we need to explore?
             for input in to_search.read().unwrap().get_inputs() {
+                // add all inputs to list if not already in list
                 if let Some((input, _)) = input {
-                    if !execution_list.iter().any(|(to_compare, _)| {
-                        input.read().unwrap().get_id() == to_compare.read().unwrap().get_id()
-                    }) {
+                    if !execution_list
+                        .iter()
+                        .any(|(to_compare, _)| shared_are_eq(&input, to_compare))
+                    {
                         to_concat.push((input, false));
-                        break;
                     }
                 }
             }
             execution_list[idx].1 = true;
         } else {
-            break;
+            // start processing modules not connected to output via graph
+            if let Some(possibly_unconnected) = all_modules.pop() {
+                if !execution_list
+                    .iter()
+                    .any(|(to_compare, _)| shared_are_eq(&possibly_unconnected, to_compare))
+                {
+                    to_concat.push((possibly_unconnected, false))
+                }
+            } else {
+                // we are at end
+                break;
+            }
         }
         execution_list.append(&mut to_concat);
     }
-    execution_list
-        .iter()
-        .rev()
-        .map(|(sm, _searched)| {
-            println!(
-                "{} {}",
-                sm.read().unwrap().get_name(),
-                sm.read().unwrap().get_id()
-            );
-            sm.clone()
-        })
-        .collect()
+    plan.clear();
+    plan.append(
+        &mut execution_list
+            .iter()
+            .rev()
+            .map(|(sm, _searched)| {
+                println!(
+                    "{} {}",
+                    sm.read().unwrap().get_name(),
+                    sm.read().unwrap().get_id()
+                );
+                sm.clone()
+            })
+            .collect(),
+    );
 }
 
 pub fn connect(
@@ -64,7 +87,7 @@ pub fn connect(
 
 type ControlVoltage = f32;
 
-pub trait SynthModule {
+pub trait SynthModule: Any {
     fn get_name(&self) -> String;
     fn get_id(&self) -> String;
     fn calc(&mut self);
@@ -81,26 +104,43 @@ pub trait SynthModule {
     ) -> Result<(), ()>;
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
     fn ui(&mut self, ui: &mut egui::Ui);
+    fn as_any(&self) -> &dyn Any;
 }
+impl PartialEq for dyn SynthModule {
+    fn eq(&self, other: &Self) -> bool {
+        self.get_id() == other.get_id()
+    }
+}
+impl Eq for dyn SynthModule {}
 pub type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
 
-pub struct DCOModule {
+pub fn shared_are_eq(a: &SharedSynthModule, b: &SharedSynthModule) -> bool {
+    let a = { a.read().unwrap().get_id() };
+    let b = { b.read().unwrap().get_id() };
+    a == b
+}
+
+pub struct OscillatorModule {
     id: String,
     pub val: ControlVoltage,
     input: Option<(SharedSynthModule, u8)>,
     sample_rate: u32,
-    buf: Box<[ControlVoltage]>,
+    sine: Box<[ControlVoltage]>,
+    square: Box<[ControlVoltage]>,
+    saw: Box<[ControlVoltage]>,
     pos: f64,
 }
 
-impl DCOModule {
-    pub fn new(buffer_size: usize, sample_rate: u32) -> DCOModule {
-        DCOModule {
+impl OscillatorModule {
+    pub fn new(buffer_size: usize, sample_rate: u32) -> OscillatorModule {
+        OscillatorModule {
             id: uuid::Uuid::new_v4().into(),
             input: None,
             val: 0.0,
             sample_rate,
-            buf: (0..buffer_size).map(|_| 0.0).collect(),
+            sine: (0..buffer_size).map(|_| 0.0).collect(),
+            square: (0..buffer_size).map(|_| 0.0).collect(),
+            saw: (0..buffer_size).map(|_| 0.0).collect(),
             pos: 0.0,
         }
     }
@@ -113,9 +153,9 @@ impl DCOModule {
     }
 }
 
-impl SynthModule for DCOModule {
+impl SynthModule for OscillatorModule {
     fn get_name(&self) -> String {
-        "DCO".to_string()
+        "Oscillator".to_string()
     }
 
     fn get_id(&self) -> String {
@@ -123,10 +163,12 @@ impl SynthModule for DCOModule {
     }
 
     fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
-        if output_idx == 0 {
-            return Ok(&self.buf);
+        match output_idx {
+            0 => Ok(&self.sine),
+            1 => Ok(&self.square),
+            2 => Ok(&self.saw),
+            _ => Err(()),
         }
-        Err(())
     }
 
     fn calc(&mut self) {
@@ -136,15 +178,17 @@ impl SynthModule for DCOModule {
             input_module = input.read().unwrap();
             input_buf = Some(input_module.get_output(*port).unwrap());
         }
-        for i in 0..self.buf.len() {
-            self.buf[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
+        for i in 0..self.sine.len() {
+            self.sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
+            self.square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 };
+            self.saw[i] = self.pos as ControlVoltage * 2.0 - 1.0;
             self.pos = self.pos + (self.get_freq_in_hz(input_buf, i) / (self.sample_rate as f64));
+            self.pos = self.pos % 1.0;
         }
-        self.pos = self.pos % 1.0;
     }
 
     fn get_num_outputs(&self) -> u8 {
-        1
+        3
     }
 
     fn get_input(&self, output_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
@@ -194,6 +238,10 @@ impl SynthModule for DCOModule {
             }
         });
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -202,7 +250,7 @@ mod dco_tests {
 
     #[test]
     fn produces_440() {
-        let mut module = DCOModule::new(17, 440 * 4); // notice odd sized buffer
+        let mut module = OscillatorModule::new(17, 440 * 4); // notice odd sized buffer
         module.calc();
         {
             let buf = module.get_output(0).unwrap();
@@ -304,4 +352,8 @@ impl SynthModule for OutputModule {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {}
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
