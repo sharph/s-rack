@@ -42,7 +42,7 @@ pub struct SynthModuleWorkspace {
     modules: Vec<synth::SharedSynthModule>,
     pub plan: Arc<Mutex<Vec<synth::SharedSynthModule>>>,
     pub output: Arc<Mutex<Option<synth::SharedSynthModule>>>,
-    audio_config: synth::AudioConfig,
+    pub audio_config: synth::AudioConfig,
 }
 
 impl SynthModuleWorkspace {

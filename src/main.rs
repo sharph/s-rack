@@ -97,12 +97,17 @@ fn main() -> eframe::Result {
     workspace.add_module(output.clone());
     workspace.plan();
     eframe::run_simple_native("s-rack", options, move |ctx, _frame| {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.menu_button("Modules", |ui| {
+                for (name, constuct) in synth::get_catalog() {
+                    if ui.button(name).clicked() {
+                        workspace.add_module(constuct(&workspace.audio_config));
+                    }
+                }
+            });
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::scroll_area::ScrollArea::both()
-                .scroll([true, true])
-                .show(ui, |ui| {
-                    workspace.ui(ui);
-                });
+            workspace.ui(ui);
         });
     })
 }

@@ -160,11 +160,15 @@ impl OscillatorModule {
             None => 440.0 * (2.0_f64.powf(<f64>::from(self.val))),
         }
     }
+
+    fn get_name() -> String {
+        "Oscillator".to_string()
+    }
 }
 
 impl SynthModule for OscillatorModule {
     fn get_name(&self) -> String {
-        "Oscillator".to_string()
+        OscillatorModule::get_name()
     }
 
     fn get_id(&self) -> String {
@@ -291,11 +295,15 @@ impl OutputModule {
             inputs: (0..audio_config.channels).map(|_| None).collect(),
         }
     }
+
+    fn get_name() -> String {
+        "Output".to_string()
+    }
 }
 
 impl SynthModule for OutputModule {
     fn get_name(&self) -> String {
-        "Output".to_string()
+        OutputModule::get_name()
     }
 
     fn get_id(&self) -> String {
@@ -365,4 +373,11 @@ impl SynthModule for OutputModule {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModule>)> {
+    vec![(
+        OscillatorModule::get_name(),
+        Box::new(|audio_config| Arc::new(RwLock::new(OscillatorModule::new(audio_config)))),
+    )]
 }
