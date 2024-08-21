@@ -1,0 +1,23 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: s-rack-cert
+spec:
+  commonName: "{{ .Values.domain }}"
+  dnsNames:
+  - "{{ .Values.domain }}"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  duration: 2160h0m0s
+  renewBefore: 360h0m0s
+  secretName: s-rack-cert
+  subject:
+    organizations:
+    - sharphall
+  usages:
+  - server auth

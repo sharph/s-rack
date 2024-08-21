@@ -1,0 +1,32 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: s-rack
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`{{ .Values.domain }}`)
+    services:
+    - name: s-rack
+      port: 80
+  tls:
+    secretName: s-rack-cert
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: s-rack-redirect
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: Host(`{{ .Values.domain }}`)
+    middlewares:
+    - name: https-redirect
+      namespace: traefik
+    services:
+    - kind: TraefikService
+      name: noop@internal
