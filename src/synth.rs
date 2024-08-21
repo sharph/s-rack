@@ -2,6 +2,7 @@ use egui;
 use std::any::Any;
 use std::f64::consts::PI;
 use std::iter::zip;
+use std::num;
 use std::sync::Arc;
 use std::sync::RwLock;
 use uuid;
@@ -489,6 +490,9 @@ impl GridSequencerModule {
     }
 }
 
+const GRID_CELL_SIZE: f32 = 7.0;
+const GRID_CELL_PADDING: f32 = 1.0;
+
 impl SynthModule for GridSequencerModule {
     fn as_any(&self) -> &dyn Any {
         self
@@ -496,40 +500,48 @@ impl SynthModule for GridSequencerModule {
 
     fn ui(&mut self, ui: &mut egui::Ui) {
         let num_rows = self.octaves as u16 * self.steps_per_octave;
-        egui::Grid::new("grid::".to_string() + &self.get_id())
-            .min_col_width(0.0)
-            .max_col_width(7.0)
-            .min_row_height(0.0)
-            .spacing([1.0, 1.0])
-            .show(ui, |ui| {
-                for row in (0..num_rows).into_iter().rev() {
-                    for col in 0..self.sequence.len() {
-                        let (id, rect) = ui.allocate_space([7.0, 7.0].into());
-                        let mut color = egui::Color32::LIGHT_GRAY;
-                        if col % 4 == 0 {
-                            color = egui::Color32::GRAY;
-                        }
-                        if row % self.steps_per_octave == 0 {
-                            color = egui::Color32::YELLOW;
-                        }
-                        if usize::from(self.current_step) == col {
-                            color = egui::Color32::RED;
-                        }
-                        if self.sequence[usize::from(col)] == Some(row) {
-                            color = egui::Color32::BLACK;
-                        }
-                        ui.painter().rect_filled(rect, 1.0, color);
-                        if ui.interact(rect, id, egui::Sense::click()).clicked() {
-                            if self.sequence[usize::from(col)] == Some(row) {
-                                self.sequence[usize::from(col)] = None;
-                            } else {
-                                self.sequence[usize::from(col)] = Some(row);
-                            }
-                        }
-                    }
-                    ui.end_row();
+        let (id, space_rect) = ui.allocate_space(
+            [
+                self.sequence.len() as f32 * (GRID_CELL_SIZE + GRID_CELL_PADDING),
+                num_rows as f32 * (GRID_CELL_SIZE + GRID_CELL_PADDING),
+            ]
+            .into(),
+        );
+        let clicked = ui.interact(space_rect, id, egui::Sense::click()).clicked();
+        for row in (0..num_rows).into_iter().rev() {
+            for col in 0..self.sequence.len() {
+                let top_left = egui::Pos2::new(
+                    space_rect.min.x + (col as f32 * (GRID_CELL_SIZE + GRID_CELL_PADDING)),
+                    space_rect.min.y
+                        + ((num_rows - 1 - row) as f32 * (GRID_CELL_SIZE + GRID_CELL_PADDING)),
+                );
+                let rect = egui::Rect::from_two_pos(
+                    top_left,
+                    egui::Pos2::new(top_left.x + GRID_CELL_SIZE, top_left.y + GRID_CELL_SIZE),
+                );
+                let mut color = egui::Color32::LIGHT_GRAY;
+                if col % 4 == 0 {
+                    color = egui::Color32::GRAY;
                 }
-            });
+                if row % self.steps_per_octave == 0 {
+                    color = egui::Color32::YELLOW;
+                }
+                if usize::from(self.current_step) == col {
+                    color = egui::Color32::RED;
+                }
+                if self.sequence[usize::from(col)] == Some(row) {
+                    color = egui::Color32::BLACK;
+                }
+                ui.painter().rect_filled(rect, 1.0, color);
+                if clicked && ui.rect_contains_pointer(rect) {
+                    if self.sequence[usize::from(col)] == Some(row) {
+                        self.sequence[usize::from(col)] = None;
+                    } else {
+                        self.sequence[usize::from(col)] = Some(row);
+                    }
+                }
+            }
+        }
         self.ui_dirty = false;
     }
 
