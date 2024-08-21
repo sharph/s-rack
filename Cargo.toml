@@ -3,8 +3,28 @@ name = "s-rack"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
 [dependencies]
 cpal = "0.15.3"
-eframe = "0.28.1"
+eframe = { version = "0.28.1", features = ["glow"] }
 egui = "0.28.1"
 uuid = { version = "1.10.0", features = ["v4"] }
+getrandom = { version = "0.2", features = ["js"] }
+log = "0.4.22"
+
+
+# native:
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.10"
+
+# web:
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+
+# to access the DOM (to hide the loading text)
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "0.3.4"
+
