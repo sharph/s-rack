@@ -34,9 +34,6 @@ fn main() -> eframe::Result {
         sample_rate: sample_rate as u16,
         buffer_size,
     };
-    let lfo = Arc::new(RwLock::new(synth::OscillatorModule::new(&audio_config)));
-    lfo.write().unwrap().val = -9.0;
-    let osc = Arc::new(RwLock::new(synth::OscillatorModule::new(&audio_config)));
     let output = Arc::new(RwLock::new(synth::OutputModule::new(&audio_config)));
     println!(
         "Sample rate: {}, Buffer size: {}, channels: {}",
@@ -46,6 +43,8 @@ fn main() -> eframe::Result {
     let mut src_buf_pos: usize = 0;
     let output_ref = workspace.output.clone();
     let plan_ref = workspace.plan.clone();
+    let rc_ctx: Arc<RwLock<Option<egui::Context>>> = Arc::new(RwLock::new(None));
+    let rc_ctx2 = rc_ctx.clone();
     let stream = device
         .build_output_stream(
             &cpal::StreamConfig {
@@ -82,6 +81,12 @@ fn main() -> eframe::Result {
                         }
                     }
                 }
+                if synth::ui_dirty(&plan) {
+                    let mut ctx_ref = rc_ctx.write().unwrap();
+                    if let Some(ctx) = ctx_ref.as_mut() {
+                        ctx.request_repaint();
+                    }
+                }
             },
             move |_err| {},
             None,
@@ -92,11 +97,15 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]),
         ..Default::default()
     };
-    workspace.add_module(lfo.clone());
-    workspace.add_module(osc.clone());
     workspace.add_module(output.clone());
     workspace.plan();
+    let mut ctx_set = false;
     eframe::run_simple_native("s-rack", options, move |ctx, _frame| {
+        if !ctx_set {
+            let mut shared_ctx_ref = rc_ctx2.write().unwrap();
+            *shared_ctx_ref = Some(ctx.clone());
+            ctx_set = true;
+        }
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.menu_button("Modules", |ui| {
                 for (name, constuct) in synth::get_catalog() {

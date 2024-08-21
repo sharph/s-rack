@@ -19,6 +19,10 @@ pub fn execute(plan: &Vec<SharedSynthModule>) {
     }
 }
 
+pub fn ui_dirty(plan: &Vec<SharedSynthModule>) -> bool {
+    plan.iter().any(|module| module.read().unwrap().ui_dirty())
+}
+
 pub fn plan_execution(
     output: SharedSynthModule,
     all_modules: &Vec<SharedSynthModule>,
@@ -113,6 +117,8 @@ pub trait SynthModule: Any {
     ) -> Result<(), ()>;
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
     fn ui(&mut self, ui: &mut egui::Ui);
+    /// Return true when this module needs to be re-displayed
+    fn ui_dirty(&self) -> bool;
     fn as_any(&self) -> &dyn Any;
 }
 impl PartialEq for dyn SynthModule {
@@ -292,6 +298,10 @@ impl SynthModule for OscillatorModule {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn ui_dirty(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -414,6 +424,10 @@ impl SynthModule for OutputModule {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn ui_dirty(&self) -> bool {
+        false
+    }
 }
 
 struct TransitionDetector {
@@ -450,6 +464,7 @@ struct GridSequencerModule {
     current_step: u16,
     transition_detector: TransitionDetector,
     last: ControlVoltage,
+    ui_dirty: bool,
 }
 
 impl GridSequencerModule {
@@ -465,6 +480,7 @@ impl GridSequencerModule {
             steps_per_octave: 12,
             transition_detector: TransitionDetector::new(),
             last: 0.0,
+            ui_dirty: false,
         }
     }
 
@@ -514,6 +530,7 @@ impl SynthModule for GridSequencerModule {
                     ui.end_row();
                 }
             });
+        self.ui_dirty = false;
     }
 
     fn calc(&mut self) {
@@ -530,6 +547,7 @@ impl SynthModule for GridSequencerModule {
             };
             if self.transition_detector.is_transition(step_in) {
                 self.current_step += 1;
+                self.ui_dirty = true;
             }
             let mut current_step: usize = self.current_step.into();
             if current_step >= self.sequence.len() {
@@ -607,6 +625,10 @@ impl SynthModule for GridSequencerModule {
             }
             _ => Err(()),
         }
+    }
+
+    fn ui_dirty(&self) -> bool {
+        self.ui_dirty
     }
 }
 
