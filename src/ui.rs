@@ -111,6 +111,33 @@ impl SynthModuleWorkspace {
         writable.modules.push(module);
     }
 
+    pub fn delete_module(&self, module: synth::SharedSynthModule) -> () {
+        let mut workspace = self.0.write().unwrap();
+        // first, disconnect any inputs connected to this module
+        for module_ref in workspace.modules.iter() {
+            let mut other_module = module_ref.write().unwrap();
+            for input_idx in 0..other_module.get_num_inputs() {
+                let sink_input = other_module.get_input(input_idx).unwrap();
+                if sink_input.is_some() && synth::shared_are_eq(&module, &sink_input.unwrap().0) {
+                    other_module.disconnect_input(input_idx).unwrap();
+                }
+            }
+        }
+        // then, delete from our internal store
+        if let Some(idx) = workspace
+            .modules
+            .iter()
+            .enumerate()
+            .filter(|(_idx, other_module)| synth::shared_are_eq(&module, other_module))
+            .map(|(idx, _)| idx)
+            .next()
+        {
+            workspace.modules.remove(idx);
+        }
+        // replan
+        workspace.plan();
+    }
+
     pub fn get_output(&self) -> Arc<Mutex<Option<synth::SharedSynthModule>>> {
         let workspace = self.0.read().unwrap();
         workspace.output.clone()
@@ -129,6 +156,8 @@ impl SynthModuleWorkspace {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let mut workspace = self.0.write().unwrap();
         let mut dirty = false;
+        let mut to_delete: Option<synth::SharedSynthModule> = None;
+
         let (id, rect) = ui.allocate_space(ui.available_size());
         let response = ui.interact(rect, id, egui::Sense::click_and_drag());
         // Allow dragging the background as well.
@@ -208,10 +237,19 @@ impl SynthModuleWorkspace {
                             .show(ui, |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                                 ui.vertical(|ui| {
-                                    ui.add(
-                                        egui::widgets::Label::new(module.get_name())
-                                            .selectable(false),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::widgets::Label::new(module.get_name())
+                                                .selectable(false),
+                                        );
+                                        if module.get_name() != "Output" {
+                                            ui.menu_button("...", |ui| {
+                                                if ui.button("Delete module").clicked() {
+                                                    to_delete = Some(module_ref.clone());
+                                                }
+                                            });
+                                        }
+                                    });
                                     module.ui(ui);
                                 });
                             });
@@ -315,5 +353,9 @@ impl SynthModuleWorkspace {
         if dirty {
             workspace.plan()
         };
+        drop(workspace);
+        if to_delete.is_some() {
+            self.delete_module(to_delete.unwrap());
+        }
     }
 }
