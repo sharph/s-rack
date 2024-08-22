@@ -96,17 +96,6 @@ pub fn get_inputs<'a>(
         .collect()
 }
 
-pub fn connect(
-    src_module: SharedSynthModule,
-    src_port: u8,
-    sink_module: SharedSynthModule,
-    sink_port: u8,
-) -> Result<(), ()> {
-    let mut sink_module_write = sink_module.write().unwrap();
-    sink_module_write.set_input(sink_port, src_module.clone(), src_port)?;
-    Ok(())
-}
-
 type ControlVoltage = f32;
 
 pub trait SynthModule: Any {
