@@ -499,6 +499,62 @@ impl SynthModule for GridSequencerModule {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label("Octaves: ");
+                ui.scope(|ui| {
+                    if self.octaves <= 1 {
+                        ui.disable();
+                    }
+                    if ui.button("-").clicked() {
+                        self.octaves -= 1;
+                    }
+                });
+                ui.label(self.octaves.to_string());
+                ui.scope(|ui| {
+                    if self.octaves >= 4 {
+                        ui.disable();
+                    }
+                    if ui.button("-").clicked() && self.octaves < 4 {
+                        self.octaves += 1;
+                    }
+                });
+                ui.label("Steps: ");
+                ui.scope(|ui| {
+                    if self.sequence.len() % 2 == 1 && self.sequence.len() <= 2 {
+                        ui.disable()
+                    }
+                    if ui.button("/2").clicked() {
+                        self.sequence.resize(self.sequence.len() / 2, None);
+                    }
+                });
+                ui.scope(|ui| {
+                    if self.sequence.len() <= 2 {
+                        ui.disable()
+                    }
+                    if ui.button("-").clicked() {
+                        self.sequence.resize(self.sequence.len() - 1, None);
+                    }
+                });
+                ui.label(self.sequence.len().to_string());
+                ui.scope(|ui| {
+                    if self.sequence.len() >= 64 {
+                        ui.disable()
+                    }
+                    if ui.button("+").clicked() {
+                        self.sequence.resize(self.sequence.len() + 1, None);
+                    }
+                });
+                ui.scope(|ui| {
+                    if self.sequence.len() > 32 {
+                        ui.disable()
+                    }
+                    if ui.button("x2").clicked() {
+                        self.sequence.resize(self.sequence.len() * 2, None);
+                    }
+                });
+            });
+        });
         let num_rows = self.octaves as u16 * self.steps_per_octave;
         let (id, space_rect) = ui.allocate_space(
             [
@@ -569,7 +625,7 @@ impl SynthModule for GridSequencerModule {
             (self.cv_out[idx], self.gate_out[idx]) = match self.sequence[current_step] {
                 Some(val) => (
                     val as ControlVoltage * (1.0 / self.steps_per_octave as ControlVoltage),
-                    0.0,
+                    *step_in,
                 ),
                 None => (self.last, 0.0),
             };
