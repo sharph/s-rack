@@ -43,9 +43,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      # - name: Deploy via ArgoCD
-      #   run: |-
-      #     curl -sSL -o argocd https://${{ secrets.ARGOCD_SERVER }}/download/argocd-linux-amd64
-      #     chmod +x argocd
-      #     ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} ./argocd app set s-rack -p image.tag=sha-$GITHUB_SHA
-      #     ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} ./argocd app wait s-rack
+      - name: Deploy via ArgoCD
+        run: |-
+          curl -sSL -o argocd https://${{ secrets.ARGOCD_SERVER }}/download/argocd-linux-amd64
+          chmod +x argocd
+          ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} ./argocd app set s-rack -p image.tag=sha-$GITHUB_SHA
+          ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} ./argocd app wait s-rack
