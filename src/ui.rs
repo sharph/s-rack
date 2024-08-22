@@ -253,7 +253,8 @@ impl SynthModuleWorkspace {
                         use egui::epaint::*;
                         if let (Some(pivot_pos), Some(_size)) = (state.pivot_pos, state.size) {
                             // draw connections
-                            for (input_idx, input_module) in module.get_inputs().iter().enumerate()
+                            for (input_idx, input_module) in
+                                synth::get_inputs(module).iter().enumerate()
                             {
                                 if let Some((input_module, port)) = input_module {
                                     let input_module = input_module.read().unwrap();

@@ -2,9 +2,8 @@ use egui;
 use std::any::Any;
 use std::f64::consts::PI;
 use std::iter::zip;
-use std::num;
 use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard};
 use uuid;
 
 #[derive(Clone)]
@@ -39,8 +38,9 @@ pub fn plan_execution(
             .filter(|(_idx, (_to_search, searched))| !searched)
             .next()
         {
+            let locked_to_search = to_search.read().unwrap();
             // is there any module in our list we need to explore?
-            for input in to_search.read().unwrap().get_inputs() {
+            for input in get_inputs(locked_to_search) {
                 // add all inputs to list if not already in list
                 if let Some((input, _)) = input {
                     if !execution_list
@@ -88,6 +88,14 @@ pub fn plan_execution(
     );
 }
 
+pub fn get_inputs<'a>(
+    module: RwLockReadGuard<'a, dyn SynthModule + Send + Sync>,
+) -> Vec<Option<(SharedSynthModule, u8)>> {
+    (0..module.get_num_inputs())
+        .map(|idx| module.get_input(idx).unwrap())
+        .collect()
+}
+
 pub fn connect(
     src_module: SharedSynthModule,
     src_port: u8,
@@ -108,7 +116,6 @@ pub trait SynthModule: Any {
     fn get_num_inputs(&self) -> u8;
     fn get_num_outputs(&self) -> u8;
     fn get_input(&self, input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()>;
-    fn get_inputs(&self) -> Vec<Option<(SharedSynthModule, u8)>>;
     fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()>;
     fn set_input(
         &mut self,
@@ -254,10 +261,6 @@ impl SynthModule for OscillatorModule {
         Err(())
     }
 
-    fn get_inputs(&self) -> Vec<Option<(SharedSynthModule, u8)>> {
-        vec![self.input.clone()]
-    }
-
     fn get_num_inputs(&self) -> u8 {
         1
     }
@@ -391,12 +394,6 @@ impl SynthModule for OutputModule {
             return Err(());
         }
         Ok(self.inputs[<usize>::from(idx)].clone())
-    }
-
-    fn get_inputs(&self) -> Vec<Option<(SharedSynthModule, u8)>> {
-        (0..self.get_num_inputs())
-            .map(|n| self.get_input(n).unwrap())
-            .collect()
     }
 
     fn set_input(
@@ -661,12 +658,6 @@ impl SynthModule for GridSequencerModule {
             }
             _ => Err(()),
         }
-    }
-
-    fn get_inputs(&self) -> Vec<Option<(SharedSynthModule, u8)>> {
-        (0..self.get_num_inputs())
-            .map(|idx| self.get_input(idx).unwrap())
-            .collect()
     }
 
     fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
