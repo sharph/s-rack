@@ -1,7 +1,6 @@
 use crate::synth;
 use egui;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 const SYNTH_HANDLE_SIZE: f32 = 10.0;
 const SYNTH_HANDLE_PADDING: f32 = 2.0;
@@ -37,45 +36,17 @@ impl egui::Widget for &mut SynthModuleHandle {
     }
 }
 
-pub struct SynthModuleWorkspace {
+pub struct SynthModuleWorkspaceImpl {
     transform: egui::emath::TSTransform,
     modules: Vec<synth::SharedSynthModule>,
     pub plan: Arc<Mutex<Vec<synth::SharedSynthModule>>>,
     pub output: Arc<Mutex<Option<synth::SharedSynthModule>>>,
-    pub audio_config: synth::AudioConfig,
+    pub audio_config: Option<synth::AudioConfig>,
 }
 
-impl SynthModuleWorkspace {
-    pub fn new(audio_config: synth::AudioConfig) -> Self {
-        Self {
-            transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
-            modules: vec![],
-            plan: Arc::new(Mutex::new(vec![])),
-            output: Arc::new(Mutex::new(None)),
-            audio_config,
-        }
-    }
-
-    pub fn add_module(&mut self, module: synth::SharedSynthModule) -> () {
-        self.modules.push(module);
-    }
-
-    pub fn get_output(&mut self) -> Result<synth::SharedSynthModule, ()> {
-        for module in self.modules.iter() {
-            if let Some(_) = module
-                .read()
-                .unwrap()
-                .as_any()
-                .downcast_ref::<synth::OutputModule>()
-            {
-                return Ok(module.clone());
-            }
-        }
-        Err(())
-    }
-
+impl SynthModuleWorkspaceImpl {
     pub fn plan(&mut self) -> () {
-        if let Ok(output) = self.get_output() {
+        if let Ok(output) = self.find_output() {
             let mut output_ref = self.output.lock().unwrap();
             synth::plan_execution(
                 output.clone(),
@@ -90,23 +61,84 @@ impl SynthModuleWorkspace {
         }
     }
 
+    fn find_output(&self) -> Result<synth::SharedSynthModule, ()> {
+        for module in self.modules.iter() {
+            if let Some(_) = module
+                .read()
+                .unwrap()
+                .as_any()
+                .downcast_ref::<synth::OutputModule>()
+            {
+                return Ok(module.clone());
+            }
+        }
+        Err(())
+    }
+}
+
+#[derive(Clone)]
+pub struct SynthModuleWorkspace(Arc<RwLock<SynthModuleWorkspaceImpl>>);
+
+impl SynthModuleWorkspace {
+    pub fn new() -> Self {
+        SynthModuleWorkspace(Arc::new(RwLock::new(SynthModuleWorkspaceImpl {
+            transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
+            modules: vec![],
+            plan: Arc::new(Mutex::new(vec![])),
+            output: Arc::new(Mutex::new(None)),
+            audio_config: None,
+        })))
+    }
+
+    pub fn value(&self) -> Arc<RwLock<SynthModuleWorkspaceImpl>> {
+        self.0.clone()
+    }
+
+    pub fn set_audio_config(&self, audio_config: synth::AudioConfig) {
+        {
+            let mut workspace = self.0.write().unwrap();
+            workspace.audio_config = Some(audio_config)
+        }
+    }
+
+    pub fn add_module(&self, module: synth::SharedSynthModule) -> () {
+        let mut writable = self.0.write().unwrap();
+        writable.modules.push(module);
+    }
+
+    pub fn get_output(&self) -> Arc<Mutex<Option<synth::SharedSynthModule>>> {
+        let workspace = self.0.read().unwrap();
+        workspace.output.clone()
+    }
+
+    pub fn get_plan(&self) -> Arc<Mutex<Vec<synth::SharedSynthModule>>> {
+        let workspace = self.0.read().unwrap();
+        workspace.plan.clone()
+    }
+
+    pub fn plan(&mut self) -> () {
+        let mut workspace = self.0.write().unwrap();
+        workspace.plan();
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let mut workspace = self.0.write().unwrap();
         let mut dirty = false;
         let (id, rect) = ui.allocate_space(ui.available_size());
         let response = ui.interact(rect, id, egui::Sense::click_and_drag());
         // Allow dragging the background as well.
         if response.dragged() {
-            self.transform.translation += response.drag_delta();
+            workspace.transform.translation += response.drag_delta();
         }
 
         // Plot-like reset
         if response.double_clicked() {
-            self.transform = egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0);
+            workspace.transform = egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0);
         }
 
         let transform =
             egui::emath::TSTransform::from_translation(ui.min_rect().left_top().to_vec2())
-                * self.transform;
+                * workspace.transform;
 
         if let Some(pointer) = ui.ctx().input(|i| i.pointer.hover_pos()) {
             if response.hovered() {
@@ -114,17 +146,17 @@ impl SynthModuleWorkspace {
                 let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
                 let pan_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
 
-                self.transform = self.transform
+                workspace.transform = workspace.transform
                     * egui::emath::TSTransform::from_translation(pointer_in_layer.to_vec2())
                     * egui::emath::TSTransform::from_scaling(zoom_delta)
                     * egui::emath::TSTransform::from_translation(-pointer_in_layer.to_vec2());
 
-                self.transform =
-                    egui::emath::TSTransform::from_translation(pan_delta) * self.transform;
+                workspace.transform =
+                    egui::emath::TSTransform::from_translation(pan_delta) * workspace.transform;
             }
         }
 
-        for module_ref in self.modules.iter() {
+        for module_ref in workspace.modules.iter() {
             let mut module = module_ref.write().unwrap();
             let window_layer = ui.layer_id();
             // create area and draw module
@@ -207,7 +239,7 @@ impl SynthModuleWorkspace {
             ui.ctx().set_sublayer(window_layer, layer_id);
         }
 
-        for module in self.modules.iter() {
+        for module in workspace.modules.iter() {
             let module = module.read().unwrap();
             let window_layer = ui.layer_id();
             // create area and draw module
@@ -271,7 +303,7 @@ impl SynthModuleWorkspace {
             ui.ctx().set_sublayer(window_layer, area.response.layer_id);
         }
         if dirty {
-            self.plan()
+            workspace.plan()
         };
     }
 }
