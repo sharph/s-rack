@@ -8,7 +8,7 @@ all-features = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
-cpal = "0.15.3"
+cpal = { version = "0.15.3", features = ["wasm-bindgen"] }
 eframe = { version = "0.28.1", features = ["glow"] }
 egui = "0.28.1"
 uuid = { version = "1.10.0", features = ["v4"] }

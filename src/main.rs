@@ -15,34 +15,13 @@ mod ui;
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     use eframe::App;
-    let audio_config = synth::AudioConfig {
-        sample_rate: 48000,
-        buffer_size: 1024,
-        channels: 2,
-    };
-    println!("Hello, world!");
     let workspace = ui::SynthModuleWorkspace::new();
-    workspace.set_audio_config(audio_config.clone());
-    workspace.add_module(Arc::new(RwLock::new(synth::OutputModule::new(
-        &audio_config,
-    ))));
-    let mut app = SRackApp::new(workspace.clone());
-    let mut audio_engine: Option<AudioEngine> = None;
+    let mut app = SRackApp::new(workspace, false, 1024);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]),
         ..Default::default()
     };
-    eframe::run_simple_native("s-rack", options, move |ctx, frame| {
-        if audio_engine.is_none() {
-            audio_engine = Some(AudioEngine::new(
-                &audio_config,
-                workspace.get_plan(),
-                workspace.get_output(),
-                Some(ctx.clone()),
-            ));
-        }
-        app.update(ctx, frame)
-    })
+    eframe::run_simple_native("s-rack", options, move |ctx, frame| app.update(ctx, frame))
 }
 
 struct AudioEngine {
@@ -126,26 +105,40 @@ impl AudioEngine {
 
 struct SRackApp {
     workspace: ui::SynthModuleWorkspace,
-    ctx_set: bool,
-    pub ctx: Arc<RwLock<Option<egui::Context>>>,
+    audio_config: synth::AudioConfig,
+    audio_engine: Option<AudioEngine>,
+    web: bool,
 }
 
 impl SRackApp {
-    fn new(workspace: ui::SynthModuleWorkspace) -> Self {
+    fn new(workspace: ui::SynthModuleWorkspace, web: bool, buffer_size: usize) -> Self {
         Self {
             workspace,
-            ctx_set: false,
-            ctx: Arc::new(RwLock::new(None)),
+            audio_config: synth::AudioConfig {
+                sample_rate: 48000,
+                buffer_size: buffer_size,
+                channels: 2,
+            },
+            audio_engine: None,
+            web,
         }
     }
 }
 
 impl eframe::App for SRackApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if !self.ctx_set {
-            let mut shared_ctx_ref = self.ctx.write().unwrap();
-            *shared_ctx_ref = Some(ctx.clone());
-            self.ctx_set = true;
+        if self.audio_engine.is_none() && (!self.web || ctx.is_using_pointer()) {
+            self.workspace.set_audio_config(self.audio_config.clone());
+            self.workspace
+                .add_module(Arc::new(RwLock::new(synth::OutputModule::new(
+                    &self.audio_config,
+                ))));
+            self.audio_engine = Some(AudioEngine::new(
+                &self.audio_config,
+                self.workspace.get_plan(),
+                self.workspace.get_output(),
+                Some(ctx.clone()),
+            ));
         }
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.menu_button("Modules", |ui| {
@@ -181,14 +174,14 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
-    let workspace = ui::SynthModuleWorkspace::new(audio_config.clone());
+    let workspace = ui::SynthModuleWorkspace::new();
 
     wasm_bindgen_futures::spawn_local(async {
         let start_result = eframe::WebRunner::new()
             .start(
                 "synth",
                 web_options,
-                Box::new(|cc| Ok(Box::new(SRackApp::new(workspace)))),
+                Box::new(|cc| Ok(Box::new(SRackApp::new(workspace, true, 4096)))),
             )
             .await;
 
