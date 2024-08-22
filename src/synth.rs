@@ -105,6 +105,10 @@ pub trait SynthModule: Any {
     fn get_num_inputs(&self) -> u8;
     fn get_num_outputs(&self) -> u8;
     fn get_input(&self, input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()>;
+    /// Return a string for the input, which may be used as a tooltip, for example.
+    fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()>;
+    /// Return a string for the output, which may be used as a tooltip, for example.
+    fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()>;
     fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()>;
     fn set_input(
         &mut self,
@@ -127,9 +131,7 @@ impl Eq for dyn SynthModule {}
 pub type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
 
 pub fn shared_are_eq(a: &SharedSynthModule, b: &SharedSynthModule) -> bool {
-    let a = { a.read().unwrap().get_id() };
-    let b = { b.read().unwrap().get_id() };
-    a == b
+    Arc::ptr_eq(a, b)
 }
 
 pub struct OscillatorModule {
@@ -208,6 +210,15 @@ impl SynthModule for OscillatorModule {
         }
     }
 
+    fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
+        match output_idx {
+            0 => Ok(Some("Sine".to_string())),
+            1 => Ok(Some("Square".to_string())),
+            2 => Ok(Some("Sawtooth".to_string())),
+            _ => Err(()),
+        }
+    }
+
     fn calc(&mut self) {
         let mut input_buf: Option<&[ControlVoltage]> = None;
         let input_module;
@@ -243,11 +254,18 @@ impl SynthModule for OscillatorModule {
         3
     }
 
-    fn get_input(&self, output_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
-        if output_idx == 0 {
+    fn get_input(&self, idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
+        if idx == 0 {
             return Ok(self.input.clone());
         }
         Err(())
+    }
+
+    fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
+        match input_idx {
+            0 => Ok(Some("CV".to_string())),
+            _ => Err(()),
+        }
     }
 
     fn get_num_inputs(&self) -> u8 {
@@ -374,6 +392,10 @@ impl SynthModule for OutputModule {
         Err(())
     }
 
+    fn get_output_label(&self, _output_idx: u8) -> Result<Option<String>, ()> {
+        Err(())
+    }
+
     fn get_num_inputs(&self) -> u8 {
         self.inputs.len().try_into().unwrap()
     }
@@ -383,6 +405,13 @@ impl SynthModule for OutputModule {
             return Err(());
         }
         Ok(self.inputs[<usize>::from(idx)].clone())
+    }
+
+    fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
+        if input_idx >= self.get_num_inputs() {
+            return Err(());
+        }
+        Ok(None)
     }
 
     fn set_input(
@@ -634,6 +663,13 @@ impl SynthModule for GridSequencerModule {
         }
     }
 
+    fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
+        match input_idx {
+            0 => Ok(Some("Step".to_string())),
+            _ => Err(()),
+        }
+    }
+
     fn set_input(
         &mut self,
         input_idx: u8,
@@ -653,6 +689,14 @@ impl SynthModule for GridSequencerModule {
         match output_idx {
             0 => Ok(&self.cv_out),
             1 => Ok(&self.gate_out),
+            _ => Err(()),
+        }
+    }
+
+    fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
+        match output_idx {
+            0 => Ok(Some("CV".to_string())),
+            1 => Ok(Some("Gate".to_string())),
             _ => Err(()),
         }
     }

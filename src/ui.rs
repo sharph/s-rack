@@ -10,11 +10,13 @@ enum SynthModulePort {
     Output(synth::SharedSynthModule, u8),
 }
 
-struct SynthModuleHandle {}
+struct SynthModuleHandle {
+    tooltip: Option<String>,
+}
 
 impl SynthModuleHandle {
-    fn new() -> Self {
-        Self {}
+    fn new(tooltip: Option<String>) -> Self {
+        Self { tooltip }
     }
 
     fn layout_in_ui(&mut self, ui: &mut egui::Ui) -> (egui::Id, egui::Rect, egui::Response) {
@@ -29,9 +31,12 @@ impl SynthModuleHandle {
 
 impl egui::Widget for &mut SynthModuleHandle {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        let (id, rect, response) = self.layout_in_ui(ui);
+        let (_id, rect, mut response) = self.layout_in_ui(ui);
         ui.painter()
             .rect_filled(rect, egui::Rounding::ZERO, egui::Color32::RED);
+        if self.tooltip.is_some() {
+            response = response.on_hover_text_at_pointer(self.tooltip.clone().unwrap());
+        }
         response
     }
 }
@@ -170,7 +175,9 @@ impl SynthModuleWorkspace {
                     ui.horizontal_top(|ui| {
                         ui.vertical(|ui| {
                             for idx in 0..module.get_num_inputs() {
-                                let response = ui.add(&mut SynthModuleHandle::new());
+                                let response = ui.add(&mut SynthModuleHandle::new(
+                                    module.get_input_label(idx).unwrap(),
+                                ));
                                 response.dnd_set_drag_payload(SynthModulePort::Input(
                                     module_ref.clone(),
                                     idx,
@@ -210,7 +217,9 @@ impl SynthModuleWorkspace {
                             });
                         ui.vertical(|ui| {
                             for idx in 0..module.get_num_outputs() {
-                                let response = ui.add(&mut SynthModuleHandle::new());
+                                let response = ui.add(&mut SynthModuleHandle::new(
+                                    module.get_output_label(idx).unwrap(),
+                                ));
                                 response.dnd_set_drag_payload(SynthModulePort::Output(
                                     module_ref.clone(),
                                     idx,
