@@ -96,8 +96,8 @@ pub fn get_inputs(module: &dyn SynthModule) -> Vec<Option<(SharedSynthModule, u8
 type ControlVoltage = f32;
 
 pub trait SynthModule: Any {
-    fn get_name(&self) -> String;
     fn get_id(&self) -> String;
+    fn get_name(&self) -> String;
     fn calc(&mut self);
     fn get_num_inputs(&self) -> u8;
     fn get_num_outputs(&self) -> u8;
@@ -114,9 +114,11 @@ pub trait SynthModule: Any {
         src_port: u8,
     ) -> Result<(), ()>;
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
-    fn ui(&mut self, ui: &mut egui::Ui);
+    fn ui(&mut self, _ui: &mut egui::Ui) {}
     /// Return true when this module needs to be re-displayed
-    fn ui_dirty(&self) -> bool;
+    fn ui_dirty(&self) -> bool {
+        false
+    }
     fn as_any(&self) -> &dyn Any;
 }
 impl PartialEq for dyn SynthModule {
@@ -982,6 +984,142 @@ impl SynthModule for ADSRModule {
     }
 }
 
+struct VCAModule {
+    id: String,
+    audio_in: Option<(SharedSynthModule, u8)>,
+    cv_in: Option<(SharedSynthModule, u8)>,
+    buf: Box<[ControlVoltage]>,
+    negative: bool,
+}
+
+impl VCAModule {
+    fn new(audio_config: &AudioConfig) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            audio_in: None,
+            cv_in: None,
+            buf: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            negative: false,
+        }
+    }
+
+    fn get_name() -> String {
+        "VCA".to_string()
+    }
+}
+
+impl SynthModule for VCAModule {
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn get_name(&self) -> String {
+        Self::get_name()
+    }
+
+    fn get_num_inputs(&self) -> u8 {
+        2
+    }
+
+    fn get_input(&self, input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
+        match input_idx {
+            0 => Ok(self.audio_in.clone()),
+            1 => Ok(self.cv_in.clone()),
+            _ => Err(()),
+        }
+    }
+
+    fn set_input(
+        &mut self,
+        input_idx: u8,
+        src_module: SharedSynthModule,
+        src_port: u8,
+    ) -> Result<(), ()> {
+        match input_idx {
+            0 => {
+                self.audio_in = Some((src_module, src_port));
+                Ok(())
+            }
+            1 => {
+                self.cv_in = Some((src_module, src_port));
+                Ok(())
+            }
+            _ => Err(()),
+        }
+    }
+
+    fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
+        match input_idx {
+            0 => {
+                self.audio_in = None;
+                Ok(())
+            }
+            1 => {
+                self.cv_in = None;
+                Ok(())
+            }
+            _ => Err(()),
+        }
+    }
+
+    fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
+        match input_idx {
+            0 => Ok(Some("Audio".to_string())),
+            1 => Ok(Some("CV".to_string())),
+            _ => Err(()),
+        }
+    }
+
+    fn get_num_outputs(&self) -> u8 {
+        1
+    }
+
+    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+        match output_idx {
+            0 => Ok(&self.buf),
+            _ => Err(()),
+        }
+    }
+
+    fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
+        match output_idx {
+            0 => Ok(None),
+            _ => Err(()),
+        }
+    }
+
+    fn calc(&mut self) {
+        if let (Some((shared_audio_module, audio_port)), Some((shared_cv_module, cv_port))) =
+            (&self.audio_in, &self.cv_in)
+        {
+            let audio_module = shared_audio_module.read().unwrap();
+            let cv_module = shared_cv_module.read().unwrap();
+            let audio_buf = audio_module.get_output(*audio_port).unwrap();
+            let cv_buf = cv_module.get_output(*cv_port).unwrap();
+            for (idx, val) in audio_buf
+                .iter()
+                .zip(cv_buf)
+                .map(|(audio, cv)| {
+                    if self.negative || *cv > 0.0 {
+                        audio * cv
+                    } else {
+                        0.0
+                    }
+                })
+                .enumerate()
+            {
+                self.buf[idx] = val;
+            }
+        } else {
+            self.buf.fill(0.0);
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModule>)> {
     vec![
         (
@@ -995,6 +1133,10 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
         (
             ADSRModule::get_name(),
             Box::new(|audio_config| Arc::new(RwLock::new(ADSRModule::new(audio_config)))),
+        ),
+        (
+            VCAModule::get_name(),
+            Box::new(|audio_config| Arc::new(RwLock::new(VCAModule::new(audio_config)))),
         ),
     ]
 }
