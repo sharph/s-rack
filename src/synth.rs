@@ -38,9 +38,8 @@ pub fn plan_execution(
             .filter(|(_idx, (_to_search, searched))| !searched)
             .next()
         {
-            let locked_to_search = to_search.read().unwrap();
-            // is there any module in our list we need to explore?
-            for input in get_inputs(locked_to_search) {
+            // is there any module in our list we need to explore.
+            for input in get_inputs(&*to_search.read().unwrap()) {
                 // add all inputs to list if not already in list
                 if let Some((input, _)) = input {
                     if !execution_list
@@ -88,9 +87,7 @@ pub fn plan_execution(
     );
 }
 
-pub fn get_inputs<'a>(
-    module: RwLockReadGuard<'a, dyn SynthModule + Send + Sync>,
-) -> Vec<Option<(SharedSynthModule, u8)>> {
+pub fn get_inputs(module: &dyn SynthModule) -> Vec<Option<(SharedSynthModule, u8)>> {
     (0..module.get_num_inputs())
         .map(|idx| module.get_input(idx).unwrap())
         .collect()
