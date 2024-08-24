@@ -143,6 +143,7 @@ pub struct OscillatorModule {
     saw: Box<[ControlVoltage]>,
     pos: f64,
     antialiasing: bool,
+    sync_detector: TransitionDetector,
 }
 
 impl OscillatorModule {
@@ -293,16 +294,59 @@ impl SynthModule for OscillatorModule {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if ui.button("-").clicked() {
-                self.val -= 1.0;
-            }
-            ui.label(self.val.to_string());
-            if ui.button("+").clicked() {
-                self.val += 1.0;
-            }
+        egui::Grid::new("osc").show(ui, |ui| {
+            ui.label("Coarse");
+            ui.add(
+                egui::Slider::new(&mut self.val, -9.0..=6.0)
+                    .step_by(1.0 / 12.0)
+                    .show_value(false),
+            );
+            ui.scope(|ui| {
+                if ui.button("-").clicked() {
+                    self.val -= 1.0;
+                }
+                if ui.button("+").clicked() {
+                    self.val += 1.0;
+                }
+            });
+            ui.end_row();
+            ui.label("Note");
+            let floor = self.val.floor();
+            ui.add(
+                egui::Slider::new(&mut self.val, floor..=floor + 11.0 / 12.0)
+                    .step_by(1.0 / 12.0)
+                    .show_value(false),
+            );
+            ui.scope(|ui| {
+                if ui.button("-").clicked() {
+                    self.val -= 1.0 / 12.0;
+                }
+                if ui.button("+").clicked() {
+                    self.val += 1.0 / 12.0;
+                }
+            });
+            let note = ((self.val + (1.0 / 24.0)) * 12.0).floor() / 12.0 - (1.0 / 24.0);
+            let note = ((self.val + (1.0 / 24.0)) * 12.0).floor() / 12.0;
+            println!("{}", note);
+            ui.end_row();
+            ui.label("Fine");
+            ui.add(
+                egui::Slider::new(
+                    &mut self.val,
+                    note - 1.0 / 24.0 + 0.00001..=note + 1.0 / 24.0 - (1.0 / 12.0 / 100.0),
+                )
+                .step_by(1.0 / 12.0 / 100.0)
+                .show_value(false),
+            );
+            ui.scope(|ui| {
+                if ui.button("-").clicked() {
+                    self.val -= 1.0 / 12.0 / 100.0;
+                }
+                if ui.button("+").clicked() {
+                    self.val += 1.0 / 12.0 / 100.0;
+                }
+            });
         });
-        ui.checkbox(&mut self.antialiasing, "Antialiasing");
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -422,7 +466,7 @@ impl SynthModule for OutputModule {
         if input_idx >= self.get_num_inputs() {
             return Err(());
         }
-        self.inputs[<usize>::from(input_idx)] = Some((src_module.clone(), src_port));
+        self.inputs[<usize>::from(input_idx)] = Some((src_module, src_port));
         Ok(())
     }
 
@@ -434,14 +478,8 @@ impl SynthModule for OutputModule {
         Ok(())
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui) {}
-
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn ui_dirty(&self) -> bool {
-        false
     }
 }
 
