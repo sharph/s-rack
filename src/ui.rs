@@ -74,7 +74,7 @@ impl SynthModuleWorkspaceImpl {
                 .read()
                 .unwrap()
                 .as_any()
-                .downcast_ref::<synth::OutputModule>()
+                .downcast_ref::<synth::output::OutputModule>()
             {
                 return Ok(module.clone());
             }

@@ -71,7 +71,7 @@ impl AudioEngine {
                                 let module = output_mutex_value.read().unwrap();
                                 let output_module = module
                                     .as_any()
-                                    .downcast_ref::<synth::OutputModule>()
+                                    .downcast_ref::<synth::output::OutputModule>()
                                     .unwrap();
                                 for c in 0..channels {
                                     output_module.bufs[c].with_read(|buf| {
@@ -132,7 +132,7 @@ impl eframe::App for SRackApp {
         if self.audio_engine.is_none() && (!self.web || ctx.is_using_pointer()) {
             self.workspace.set_audio_config(self.audio_config.clone());
             self.workspace
-                .add_module(Arc::new(RwLock::new(synth::OutputModule::new(
+                .add_module(Arc::new(RwLock::new(synth::output::OutputModule::new(
                     &self.audio_config,
                 ))));
             self.audio_engine = Some(AudioEngine::new(
