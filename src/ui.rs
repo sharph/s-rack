@@ -51,19 +51,21 @@ pub struct SynthModuleWorkspaceImpl {
 
 impl SynthModuleWorkspaceImpl {
     pub fn plan(&mut self) -> () {
+        println!("start plan");
         if let Ok(output) = self.find_output() {
-            let mut output_ref = self.output.lock().unwrap();
             synth::plan_execution(
                 output.clone(),
                 &self.modules,
                 &mut self.plan.lock().unwrap(),
             );
+            let mut output_ref = self.output.lock().unwrap();
             *output_ref = Some(output);
         } else {
             self.plan.lock().unwrap().clear();
             let mut output_ref = self.output.lock().unwrap();
             *output_ref = None;
         }
+        println!("end plan");
     }
 
     fn find_output(&self) -> Result<synth::SharedSynthModule, ()> {
@@ -212,7 +214,7 @@ impl SynthModuleWorkspace {
                                     idx,
                                 ));
                                 if response.secondary_clicked() {
-                                    let _locked_plan = workspace.plan.lock();
+                                    println!("disconnecting input");
                                     module.disconnect_input(idx).unwrap();
                                     dirty = true;
                                 }

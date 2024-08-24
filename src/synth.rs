@@ -205,6 +205,7 @@ pub struct OscillatorModule {
     id: String,
     pub val: ControlVoltage,
     input: Option<(SharedSynthModule, u8)>,
+    sync_input: Option<(SharedSynthModule, u8)>,
     sample_rate: u16,
     sine: AudioBuffer,
     square: AudioBuffer,
@@ -219,6 +220,7 @@ impl OscillatorModule {
         OscillatorModule {
             id: uuid::Uuid::new_v4().into(),
             input: None,
+            sync_input: None,
             val: 0.0,
             sample_rate: audio_config.sample_rate,
             sine: AudioBuffer::new(Some(audio_config.buffer_size)),
@@ -291,37 +293,51 @@ impl SynthModule for OscillatorModule {
     fn calc(&mut self) {
         AudioBuffer::with_write_many(
             vec![self.sine.clone(), self.square.clone(), self.saw.clone()],
-            |bufs| {
-                self.resolve_input(0).unwrap().with_read(|cv| {
-                    let (sine, square, saw) = bufs
-                        .into_iter()
-                        .map(|b| b.unwrap())
-                        .collect_tuple()
-                        .unwrap();
-                    for i in 0..sine.len() {
-                        let delta = self.get_freq_in_hz(cv, i) / (self.sample_rate as f64);
-                        sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
-
-                        square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 }
-                            - if self.antialiasing {
-                                (Self::poly_blep(self.pos, delta)
-                                    - Self::poly_blep((self.pos + 0.5) % 1.0, delta))
-                                    as f32
-                            } else {
-                                0.0
+            |out_bufs| {
+                AudioBuffer::with_read_many(
+                    vec![
+                        self.resolve_input(0).unwrap(),
+                        self.resolve_input(1).unwrap(),
+                    ],
+                    |in_bufs| {
+                        let (cv, sync_in) = in_bufs.into_iter().collect_tuple().unwrap();
+                        let (sine, square, saw) = out_bufs
+                            .into_iter()
+                            .map(|b| b.unwrap())
+                            .collect_tuple()
+                            .unwrap();
+                        for i in 0..sine.len() {
+                            let sync_val = match sync_in {
+                                Some(v) => v[i],
+                                None => 0.0,
                             };
+                            if self.sync_detector.is_transition(&sync_val) {
+                                self.pos = 0.0;
+                            }
+                            let delta = self.get_freq_in_hz(cv, i) / (self.sample_rate as f64);
+                            sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
 
-                        saw[i] = (self.pos as ControlVoltage * 2.0 - 1.0)
-                            - if self.antialiasing {
-                                Self::poly_blep(self.pos, delta) as f32
-                            } else {
-                                0.0
-                            };
+                            square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 }
+                                - if self.antialiasing {
+                                    (Self::poly_blep(self.pos, delta)
+                                        - Self::poly_blep((self.pos + 0.5) % 1.0, delta))
+                                        as f32
+                                } else {
+                                    0.0
+                                };
 
-                        self.pos = self.pos + delta;
-                        self.pos = self.pos % 1.0;
-                    }
-                });
+                            saw[i] = (self.pos as ControlVoltage * 2.0 - 1.0)
+                                - if self.antialiasing {
+                                    Self::poly_blep(self.pos, delta) as f32
+                                } else {
+                                    0.0
+                                };
+
+                            self.pos = self.pos + delta;
+                            self.pos = self.pos % 1.0;
+                        }
+                    },
+                );
             },
         );
     }
@@ -331,21 +347,23 @@ impl SynthModule for OscillatorModule {
     }
 
     fn get_input(&self, idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
-        if idx == 0 {
-            return Ok(self.input.clone());
+        match idx {
+            0 => Ok(self.input.clone()),
+            1 => Ok(self.sync_input.clone()),
+            _ => Err(()),
         }
-        Err(())
     }
 
     fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
         match input_idx {
             0 => Ok(Some("CV".to_string())),
+            1 => Ok(Some("Sync".to_string())),
             _ => Err(()),
         }
     }
 
     fn get_num_inputs(&self) -> u8 {
-        1
+        2
     }
 
     fn set_input(
@@ -354,19 +372,31 @@ impl SynthModule for OscillatorModule {
         src_module: SharedSynthModule,
         src_port: u8,
     ) -> Result<(), ()> {
-        if input_idx == 0 {
-            self.input = Some((src_module, src_port));
-            return Ok(());
+        match input_idx {
+            0 => {
+                self.input = Some((src_module, src_port));
+                Ok(())
+            }
+            1 => {
+                self.sync_input = Some((src_module, src_port));
+                Ok(())
+            }
+            _ => Err(()),
         }
-        Err(())
     }
 
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
-        if input_idx != 0 {
-            return Err(());
+        match input_idx {
+            0 => {
+                self.input = None;
+                Ok(())
+            }
+            1 => {
+                self.sync_input = None;
+                Ok(())
+            }
+            _ => Err(()),
         }
-        self.input = None;
-        Ok(())
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
@@ -401,9 +431,7 @@ impl SynthModule for OscillatorModule {
                     self.val += 1.0 / 12.0;
                 }
             });
-            let note = ((self.val + (1.0 / 24.0)) * 12.0).floor() / 12.0 - (1.0 / 24.0);
             let note = ((self.val + (1.0 / 24.0)) * 12.0).floor() / 12.0;
-            println!("{}", note);
             ui.end_row();
             ui.label("Fine");
             ui.add(
