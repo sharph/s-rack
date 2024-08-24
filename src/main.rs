@@ -74,7 +74,9 @@ impl AudioEngine {
                                     .downcast_ref::<synth::OutputModule>()
                                     .unwrap();
                                 for c in 0..channels {
-                                    src_buf[c].copy_from_slice(&output_module.bufs[c]);
+                                    output_module.bufs[c].with_read(|buf| {
+                                        src_buf[c].copy_from_slice(buf.unwrap());
+                                    });
                                 }
                             }
                         }
@@ -116,7 +118,7 @@ impl SRackApp {
             workspace,
             audio_config: synth::AudioConfig {
                 sample_rate: 48000,
-                buffer_size: buffer_size,
+                buffer_size,
                 channels: 2,
             },
             audio_engine: None,

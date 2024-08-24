@@ -1,9 +1,10 @@
 use egui;
+use itertools::Itertools;
 use std::any::Any;
 use std::f64::consts::PI;
-use std::iter::zip;
+use std::ops::DerefMut;
 use std::sync::Arc;
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid;
 
 #[derive(Clone)]
@@ -11,6 +12,65 @@ pub struct AudioConfig {
     pub sample_rate: u16,
     pub buffer_size: usize,
     pub channels: u8,
+}
+
+#[derive(Clone)]
+pub struct AudioBuffer(Option<Arc<RwLock<Box<[ControlVoltage]>>>>);
+
+impl AudioBuffer {
+    fn new(size: Option<usize>) -> Self {
+        AudioBuffer(size.map(|s| Arc::new(RwLock::new(vec![0.0; s].into_boxed_slice()))))
+    }
+
+    fn get(&self) -> Option<RwLockReadGuard<Box<[ControlVoltage]>>> {
+        if let Some(arc) = &self.0 {
+            return Some(arc.read().unwrap());
+        }
+        None
+    }
+
+    fn get_mut(&self) -> Option<RwLockWriteGuard<Box<[ControlVoltage]>>> {
+        if let Some(arc) = &self.0 {
+            return Some(arc.write().unwrap());
+        }
+        None
+    }
+
+    pub fn with_read<T, F: FnOnce(Option<&[ControlVoltage]>) -> T>(&self, f: F) -> T {
+        if let Some(_) = &self.0 {
+            return f(Some(self.get().unwrap().as_ref()));
+        }
+        f(None)
+    }
+
+    pub fn with_write<T, F: FnOnce(Option<&mut [ControlVoltage]>) -> T>(&self, f: F) -> T {
+        if let Some(_) = &self.0 {
+            let mut buf = self.get_mut();
+            let deref = buf.as_deref_mut().unwrap();
+            return f(Some(deref));
+        }
+        f(None)
+    }
+
+    pub fn with_read_many<T, F: FnOnce(Vec<Option<&[ControlVoltage]>>) -> T>(
+        cv: Vec<AudioBuffer>,
+        f: F,
+    ) -> T {
+        let unlocked: Vec<_> = cv.iter().map(|ab| ab.get()).collect();
+        let derefed: Vec<_> = unlocked.iter().map(|ab| ab.as_ref()).collect();
+        f(derefed.iter().map(|ab| ab.map(|ab| ab.as_ref())).collect())
+    }
+
+    pub fn with_write_many<T, F: FnOnce(Vec<Option<&mut [ControlVoltage]>>) -> T>(
+        cv: Vec<AudioBuffer>,
+        f: F,
+    ) -> T {
+        let mut unlocked: Vec<_> = cv.iter().map(|ab| ab.get_mut()).collect();
+        f(unlocked
+            .iter_mut()
+            .map(|ab| ab.as_deref_mut().map(|ab| ab.deref_mut()))
+            .collect())
+    }
 }
 
 pub fn execute(plan: &Vec<SharedSynthModule>) {
@@ -106,7 +166,7 @@ pub trait SynthModule: Any {
     fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()>;
     /// Return a string for the output, which may be used as a tooltip, for example.
     fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()>;
-    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()>;
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()>;
     fn set_input(
         &mut self,
         input_idx: u8,
@@ -114,6 +174,14 @@ pub trait SynthModule: Any {
         src_port: u8,
     ) -> Result<(), ()>;
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
+
+    #[inline]
+    fn resolve_input<'a>(&'a self, input_idx: u8) -> Result<AudioBuffer, ()> {
+        match self.get_input(input_idx)? {
+            Some((src_module, src_port)) => Ok(src_module.read().unwrap().get_output(src_port)?),
+            None => Ok(AudioBuffer::new(None)),
+        }
+    }
     fn ui(&mut self, _ui: &mut egui::Ui) {}
     /// Return true when this module needs to be re-displayed
     fn ui_dirty(&self) -> bool {
@@ -126,7 +194,7 @@ impl PartialEq for dyn SynthModule {
         self.get_id() == other.get_id()
     }
 }
-impl Eq for dyn SynthModule {}
+
 pub type SharedSynthModule = Arc<RwLock<dyn SynthModule + Send + Sync>>;
 
 pub fn shared_are_eq(a: &SharedSynthModule, b: &SharedSynthModule) -> bool {
@@ -138,9 +206,9 @@ pub struct OscillatorModule {
     pub val: ControlVoltage,
     input: Option<(SharedSynthModule, u8)>,
     sample_rate: u16,
-    sine: Box<[ControlVoltage]>,
-    square: Box<[ControlVoltage]>,
-    saw: Box<[ControlVoltage]>,
+    sine: AudioBuffer,
+    square: AudioBuffer,
+    saw: AudioBuffer,
     pos: f64,
     antialiasing: bool,
     sync_detector: TransitionDetector,
@@ -153,11 +221,12 @@ impl OscillatorModule {
             input: None,
             val: 0.0,
             sample_rate: audio_config.sample_rate,
-            sine: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
-            square: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
-            saw: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            sine: AudioBuffer::new(Some(audio_config.buffer_size)),
+            square: AudioBuffer::new(Some(audio_config.buffer_size)),
+            saw: AudioBuffer::new(Some(audio_config.buffer_size)),
             pos: 0.0,
             antialiasing: true,
+            sync_detector: TransitionDetector::new(),
         }
     }
 
@@ -201,11 +270,11 @@ impl SynthModule for OscillatorModule {
         self.id.clone()
     }
 
-    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
         match output_idx {
-            0 => Ok(&self.sine),
-            1 => Ok(&self.square),
-            2 => Ok(&self.saw),
+            0 => Ok(self.sine.clone()),
+            1 => Ok(self.square.clone()),
+            2 => Ok(self.saw.clone()),
             _ => Err(()),
         }
     }
@@ -220,34 +289,41 @@ impl SynthModule for OscillatorModule {
     }
 
     fn calc(&mut self) {
-        let mut input_buf: Option<&[ControlVoltage]> = None;
-        let input_module;
-        if let Some((input, port)) = &self.input {
-            input_module = input.read().unwrap();
-            input_buf = Some(input_module.get_output(*port).unwrap());
-        }
-        for i in 0..self.sine.len() {
-            let delta = self.get_freq_in_hz(input_buf, i) / (self.sample_rate as f64);
-            self.sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
+        AudioBuffer::with_write_many(
+            vec![self.sine.clone(), self.square.clone(), self.saw.clone()],
+            |bufs| {
+                self.resolve_input(0).unwrap().with_read(|cv| {
+                    let (sine, square, saw) = bufs
+                        .into_iter()
+                        .map(|b| b.unwrap())
+                        .collect_tuple()
+                        .unwrap();
+                    for i in 0..sine.len() {
+                        let delta = self.get_freq_in_hz(cv, i) / (self.sample_rate as f64);
+                        sine[i] = (self.pos * PI * 2.0).sin() as ControlVoltage;
 
-            self.square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 }
-                - if self.antialiasing {
-                    (Self::poly_blep(self.pos, delta)
-                        - Self::poly_blep((self.pos + 0.5) % 1.0, delta)) as f32
-                } else {
-                    0.0
-                };
+                        square[i] = if self.pos < 0.5 { -1.0 } else { 1.0 }
+                            - if self.antialiasing {
+                                (Self::poly_blep(self.pos, delta)
+                                    - Self::poly_blep((self.pos + 0.5) % 1.0, delta))
+                                    as f32
+                            } else {
+                                0.0
+                            };
 
-            self.saw[i] = (self.pos as ControlVoltage * 2.0 - 1.0)
-                - if self.antialiasing {
-                    Self::poly_blep(self.pos, delta) as f32
-                } else {
-                    0.0
-                };
+                        saw[i] = (self.pos as ControlVoltage * 2.0 - 1.0)
+                            - if self.antialiasing {
+                                Self::poly_blep(self.pos, delta) as f32
+                            } else {
+                                0.0
+                            };
 
-            self.pos = self.pos + delta;
-            self.pos = self.pos % 1.0;
-        }
+                        self.pos = self.pos + delta;
+                        self.pos = self.pos % 1.0;
+                    }
+                });
+            },
+        );
     }
 
     fn get_num_outputs(&self) -> u8 {
@@ -371,7 +447,8 @@ mod dco_tests {
         }); // notice odd sized buffer
         module.calc();
         {
-            let buf = module.get_output(0).unwrap();
+            let output = module.get_output(0).unwrap();
+            let buf = output.get().unwrap();
             assert_eq!(buf[0], 0.0);
             assert!((buf[1] - 1.0).abs() < 0.00001);
             assert!(buf[2].abs() < 0.00001);
@@ -379,14 +456,15 @@ mod dco_tests {
             assert!(buf[4].abs() < 0.00001);
         }
         module.calc();
-        let buf = module.get_output(0).unwrap();
+        let output = module.get_output(0).unwrap();
+        let buf = output.get().unwrap();
         assert!((buf[0] - 1.0).abs() < 0.00001); // should continue smoothly into next buffer
     }
 }
 
 pub struct OutputModule {
     id: String,
-    pub bufs: Box<[Box<[ControlVoltage]>]>,
+    pub bufs: Box<[AudioBuffer]>,
     inputs: Box<[Option<(SharedSynthModule, u8)>]>,
 }
 
@@ -395,7 +473,7 @@ impl OutputModule {
         OutputModule {
             id: uuid::Uuid::new_v4().into(),
             bufs: (0..audio_config.channels)
-                .map(|_| (0..audio_config.buffer_size).map(|_| 0.0).collect())
+                .map(|_| AudioBuffer::new(Some(audio_config.buffer_size)))
                 .collect(),
             inputs: (0..audio_config.channels).map(|_| None).collect(),
         }
@@ -416,14 +494,18 @@ impl SynthModule for OutputModule {
     }
 
     fn calc(&mut self) {
-        for (input, buf) in zip(self.inputs.iter_mut(), self.bufs.iter_mut()) {
-            match input {
-                Some((module, port)) => {
-                    let input_module = module.read().unwrap();
-                    buf.copy_from_slice(input_module.get_output(*port).unwrap());
-                }
-                None => buf.fill(0.0),
-            }
+        for input_idx in 0..self.get_num_inputs() {
+            self.resolve_input(input_idx)
+                .unwrap()
+                .with_read(|input_buf| {
+                    self.bufs[input_idx as usize].with_write(|output_buf| {
+                        let output_buf = output_buf.unwrap();
+                        match input_buf {
+                            Some(buf) => output_buf.clone_from_slice(buf),
+                            None => output_buf.fill(0.0),
+                        }
+                    });
+                });
         }
     }
 
@@ -431,7 +513,7 @@ impl SynthModule for OutputModule {
         0
     }
 
-    fn get_output(&self, _: u8) -> Result<&[ControlVoltage], ()> {
+    fn get_output(&self, _: u8) -> Result<AudioBuffer, ()> {
         Err(())
     }
 
@@ -508,8 +590,8 @@ impl TransitionDetector {
 
 struct GridSequencerModule {
     id: String,
-    cv_out: Box<[ControlVoltage]>,
-    gate_out: Box<[ControlVoltage]>,
+    cv_out: AudioBuffer,
+    gate_out: AudioBuffer,
     sequence: Vec<Option<u16>>,
     octaves: u8,
     steps_per_octave: u16,
@@ -524,8 +606,8 @@ impl GridSequencerModule {
     fn new(audio_config: &AudioConfig) -> Self {
         GridSequencerModule {
             id: uuid::Uuid::new_v4().into(),
-            cv_out: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
-            gate_out: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            cv_out: AudioBuffer::new(Some(audio_config.buffer_size)),
+            gate_out: AudioBuffer::new(Some(audio_config.buffer_size)),
             octaves: 2,
             sequence: vec![None; 64],
             step_in: None,
@@ -654,35 +736,42 @@ impl SynthModule for GridSequencerModule {
     }
 
     fn calc(&mut self) {
-        let mut step_in_buf: Option<&[ControlVoltage]> = None;
-        let step_in_module;
-        if let Some((input, port)) = &self.step_in {
-            step_in_module = input.read().unwrap();
-            step_in_buf = Some(step_in_module.get_output(*port).unwrap());
-        }
-        for idx in 0..self.cv_out.len() {
-            let step_in = match step_in_buf {
-                Some(v) => &v[idx],
-                None => &0.0,
-            };
-            if self.transition_detector.is_transition(step_in) {
-                self.current_step += 1;
-                self.ui_dirty = true;
-            }
-            let mut current_step: usize = self.current_step.into();
-            if current_step >= self.sequence.len() {
-                self.current_step = 0;
-                current_step = 0;
-            }
-            (self.cv_out[idx], self.gate_out[idx]) = match self.sequence[current_step] {
-                Some(val) => (
-                    val as ControlVoltage * (1.0 / self.steps_per_octave as ControlVoltage),
-                    *step_in,
-                ),
-                None => (self.last, 0.0),
-            };
-            self.last = self.cv_out[idx];
-        }
+        self.resolve_input(0).unwrap().with_read(|step_in_buf| {
+            AudioBuffer::with_write_many(
+                vec![self.cv_out.clone(), self.gate_out.clone()],
+                |bufs| {
+                    let (cv_out, gate_out) = bufs
+                        .into_iter()
+                        .map(|b| b.unwrap())
+                        .collect_tuple()
+                        .unwrap();
+                    for idx in 0..cv_out.len() {
+                        let step_in = match step_in_buf {
+                            Some(v) => &v[idx],
+                            None => &0.0,
+                        };
+                        if self.transition_detector.is_transition(step_in) {
+                            self.current_step += 1;
+                            self.ui_dirty = true;
+                        }
+                        let mut current_step: usize = self.current_step.into();
+                        if current_step >= self.sequence.len() {
+                            self.current_step = 0;
+                            current_step = 0;
+                        }
+                        (cv_out[idx], gate_out[idx]) = match self.sequence[current_step] {
+                            Some(val) => (
+                                val as ControlVoltage
+                                    * (1.0 / self.steps_per_octave as ControlVoltage),
+                                *step_in,
+                            ),
+                            None => (self.last, 0.0),
+                        };
+                        self.last = cv_out[idx];
+                    }
+                },
+            );
+        });
     }
 
     fn get_id(&self) -> String {
@@ -722,10 +811,10 @@ impl SynthModule for GridSequencerModule {
         }
     }
 
-    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
         match output_idx {
-            0 => Ok(&self.cv_out),
-            1 => Ok(&self.gate_out),
+            0 => Ok(self.cv_out.clone()),
+            1 => Ok(self.gate_out.clone()),
             _ => Err(()),
         }
     }
@@ -776,7 +865,7 @@ struct ADSRModule {
     sample_rate: f32,
     gate_in: Option<(SharedSynthModule, u8)>,
     transition_detector: TransitionDetector,
-    output_buffer: Box<[ControlVoltage]>,
+    output_buffer: AudioBuffer,
     ui_dirty: bool,
 }
 
@@ -802,7 +891,7 @@ impl ADSRModule {
             sample_rate: audio_config.sample_rate as f32,
             gate_in: None,
             transition_detector: TransitionDetector::new(),
-            output_buffer: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            output_buffer: AudioBuffer::new(Some(audio_config.buffer_size)),
             ui_dirty: false,
         }
     }
@@ -868,9 +957,9 @@ impl SynthModule for ADSRModule {
         1
     }
 
-    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
         match output_idx {
-            0 => Ok(&self.output_buffer),
+            0 => Ok(self.output_buffer.clone()),
             _ => Err(()),
         }
     }
@@ -883,84 +972,83 @@ impl SynthModule for ADSRModule {
     }
 
     fn calc(&mut self) {
-        let mut gate_in_buf: Option<&[ControlVoltage]> = None;
-        let gate_in_module;
-        if let Some((input, port)) = &self.gate_in {
-            gate_in_module = input.read().unwrap();
-            gate_in_buf = Some(gate_in_module.get_output(*port).unwrap());
-        }
-        for idx in 0..self.output_buffer.len() {
-            let is_transition = self.transition_detector.is_transition(match gate_in_buf {
-                Some(buf) => &buf[idx],
-                None => &0.0,
+        self.resolve_input(0).unwrap().with_read(|gate_in_buf| {
+            self.output_buffer.with_write(|output_buffer| {
+                let output_buffer = output_buffer.unwrap();
+                for idx in 0..output_buffer.len() {
+                    let is_transition = self.transition_detector.is_transition(match gate_in_buf {
+                        Some(buf) => &buf[idx],
+                        None => &0.0,
+                    });
+                    match self.mode {
+                        ADSRMode::None => {
+                            if gate_in_buf.is_some() && gate_in_buf.unwrap()[idx] > 0.0 {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Attack;
+                                self.ui_dirty = true;
+                            }
+                        }
+                        ADSRMode::Attack => {
+                            self.phase += 1.0 / (self.sample_rate * self.a_sec);
+                            if self.phase >= 1.0 {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Decay;
+                                self.ui_dirty = true;
+                            }
+                        }
+                        ADSRMode::Decay => {
+                            self.phase += 1.0 / (self.sample_rate * self.d_sec);
+                            if self.phase >= 1.0 {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Sustain;
+                                self.ui_dirty = true;
+                            }
+                            if is_transition {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Attack;
+                                self.ui_dirty = true;
+                            }
+                        }
+                        ADSRMode::Sustain => {
+                            if gate_in_buf.is_none() || gate_in_buf.unwrap()[idx] <= 0.0 {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Release;
+                                self.ui_dirty = true;
+                            }
+                            if is_transition {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Attack;
+                                self.ui_dirty = true;
+                            }
+                        }
+                        ADSRMode::Release => {
+                            if gate_in_buf.is_some() && gate_in_buf.unwrap()[idx] > 0.0 {
+                                self.phase = 0.0;
+                                self.mode = ADSRMode::Attack;
+                                self.ui_dirty = true;
+                            }
+                            self.phase += 1.0 / (self.sample_rate * self.r_sec);
+                            if self.phase >= 1.0 {
+                                self.phase = 0.0;
+                                self.r_val = 0.0;
+                                self.mode = ADSRMode::None;
+                                self.ui_dirty = true;
+                            }
+                        }
+                    }
+                    output_buffer[idx] = match self.mode {
+                        ADSRMode::None => 0.0,
+                        ADSRMode::Attack => self.r_val + (1.0 - self.r_val) * self.phase,
+                        ADSRMode::Decay => self.s_val + (1.0 - self.s_val) * (1.0 - self.phase),
+                        ADSRMode::Sustain => self.s_val,
+                        ADSRMode::Release => self.s_val * (1.0 - self.phase),
+                    };
+                    if !matches!(self.mode, ADSRMode::Attack) {
+                        self.r_val = output_buffer[idx];
+                    }
+                }
             });
-            match self.mode {
-                ADSRMode::None => {
-                    if gate_in_buf.is_some() && gate_in_buf.unwrap()[idx] > 0.0 {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Attack;
-                        self.ui_dirty = true;
-                    }
-                }
-                ADSRMode::Attack => {
-                    self.phase += 1.0 / (self.sample_rate * self.a_sec);
-                    if self.phase >= 1.0 {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Decay;
-                        self.ui_dirty = true;
-                    }
-                }
-                ADSRMode::Decay => {
-                    self.phase += 1.0 / (self.sample_rate * self.d_sec);
-                    if self.phase >= 1.0 {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Sustain;
-                        self.ui_dirty = true;
-                    }
-                    if is_transition {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Attack;
-                        self.ui_dirty = true;
-                    }
-                }
-                ADSRMode::Sustain => {
-                    if gate_in_buf.is_none() || gate_in_buf.unwrap()[idx] <= 0.0 {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Release;
-                        self.ui_dirty = true;
-                    }
-                    if is_transition {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Attack;
-                        self.ui_dirty = true;
-                    }
-                }
-                ADSRMode::Release => {
-                    if gate_in_buf.is_some() && gate_in_buf.unwrap()[idx] > 0.0 {
-                        self.phase = 0.0;
-                        self.mode = ADSRMode::Attack;
-                        self.ui_dirty = true;
-                    }
-                    self.phase += 1.0 / (self.sample_rate * self.r_sec);
-                    if self.phase >= 1.0 {
-                        self.phase = 0.0;
-                        self.r_val = 0.0;
-                        self.mode = ADSRMode::None;
-                        self.ui_dirty = true;
-                    }
-                }
-            }
-            self.output_buffer[idx] = match self.mode {
-                ADSRMode::None => 0.0,
-                ADSRMode::Attack => self.r_val + (1.0 - self.r_val) * self.phase,
-                ADSRMode::Decay => self.s_val + (1.0 - self.s_val) * (1.0 - self.phase),
-                ADSRMode::Sustain => self.s_val,
-                ADSRMode::Release => self.s_val * (1.0 - self.phase),
-            };
-            if !matches!(self.mode, ADSRMode::Attack) {
-                self.r_val = self.output_buffer[idx];
-            }
-        }
+        });
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
@@ -1026,7 +1114,7 @@ struct VCAModule {
     id: String,
     audio_in: Option<(SharedSynthModule, u8)>,
     cv_in: Option<(SharedSynthModule, u8)>,
-    buf: Box<[ControlVoltage]>,
+    buf: AudioBuffer,
     negative: bool,
 }
 
@@ -1036,7 +1124,7 @@ impl VCAModule {
             id: uuid::Uuid::new_v4().to_string(),
             audio_in: None,
             cv_in: None,
-            buf: (0..audio_config.buffer_size).map(|_| 0.0).collect(),
+            buf: AudioBuffer::new(Some(audio_config.buffer_size)),
             negative: false,
         }
     }
@@ -1112,9 +1200,9 @@ impl SynthModule for VCAModule {
         1
     }
 
-    fn get_output(&self, output_idx: u8) -> Result<&[ControlVoltage], ()> {
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
         match output_idx {
-            0 => Ok(&self.buf),
+            0 => Ok(self.buf.clone()),
             _ => Err(()),
         }
     }
@@ -1127,30 +1215,36 @@ impl SynthModule for VCAModule {
     }
 
     fn calc(&mut self) {
-        if let (Some((shared_audio_module, audio_port)), Some((shared_cv_module, cv_port))) =
-            (&self.audio_in, &self.cv_in)
-        {
-            let audio_module = shared_audio_module.read().unwrap();
-            let cv_module = shared_cv_module.read().unwrap();
-            let audio_buf = audio_module.get_output(*audio_port).unwrap();
-            let cv_buf = cv_module.get_output(*cv_port).unwrap();
-            for (idx, val) in audio_buf
-                .iter()
-                .zip(cv_buf)
-                .map(|(audio, cv)| {
-                    if self.negative || *cv > 0.0 {
-                        audio * cv
+        AudioBuffer::with_read_many(
+            vec![
+                self.resolve_input(0).unwrap(),
+                self.resolve_input(1).unwrap(),
+            ],
+            |bufs| {
+                let (audio_in, cv_in) = bufs.into_iter().collect_tuple().unwrap();
+                self.buf.with_write(|output| {
+                    let output = output.unwrap();
+                    if let (Some(audio_buf), Some(cv_buf)) = (audio_in, cv_in) {
+                        for (idx, val) in audio_buf
+                            .iter()
+                            .zip(cv_buf)
+                            .map(|(audio, cv)| {
+                                if self.negative || *cv > 0.0 {
+                                    audio * cv
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .enumerate()
+                        {
+                            output[idx] = val;
+                        }
                     } else {
-                        0.0
+                        output.fill(0.0);
                     }
-                })
-                .enumerate()
-            {
-                self.buf[idx] = val;
-            }
-        } else {
-            self.buf.fill(0.0);
-        }
+                });
+            },
+        );
     }
 
     fn as_any(&self) -> &dyn Any {

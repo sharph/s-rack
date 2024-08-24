@@ -14,6 +14,7 @@ egui = "0.28.1"
 uuid = { version = "1.10.0", features = ["v4"] }
 getrandom = { version = "0.2", features = ["js"] }
 log = "0.4.22"
+itertools = "0.13.0"
 
 
 # native:

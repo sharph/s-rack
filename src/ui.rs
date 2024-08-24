@@ -212,6 +212,7 @@ impl SynthModuleWorkspace {
                                     idx,
                                 ));
                                 if response.secondary_clicked() {
+                                    let _locked_plan = workspace.plan.lock();
                                     module.disconnect_input(idx).unwrap();
                                     dirty = true;
                                 }
