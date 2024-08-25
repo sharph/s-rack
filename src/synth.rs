@@ -1,4 +1,5 @@
 mod adsr;
+mod mixer;
 mod oscillator;
 pub mod output;
 mod sequencer;
@@ -250,6 +251,12 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
         (
             vca::VCAModule::get_name(),
             Box::new(|audio_config| Arc::new(RwLock::new(vca::VCAModule::new(audio_config)))),
+        ),
+        (
+            mixer::MonoMixerModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(mixer::MonoMixerModule::new(audio_config)))
+            }),
         ),
     ]
 }
