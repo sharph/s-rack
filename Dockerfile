@@ -7,7 +7,7 @@ RUN wget -O- https://github.com/trunk-rs/trunk/releases/download/v0.20.3/trunk-x
 RUN apt-get update && apt-get -y install libasound2-dev
 
 COPY . /app
-RUN ./trunk build
+RUN TRUNK_BUILD_RELEASE=true ./trunk build
 RUN cargo doc
 
 FROM nginx:stable-alpine
