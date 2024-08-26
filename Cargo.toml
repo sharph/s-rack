@@ -15,6 +15,7 @@ uuid = { version = "1.10.0", features = ["v4"] }
 getrandom = { version = "0.2", features = ["js"] }
 log = "0.4.22"
 itertools = "0.13.0"
+by_address = "1.2.1"
 
 
 # native:

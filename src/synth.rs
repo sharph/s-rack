@@ -5,8 +5,11 @@ pub mod output;
 mod sequencer;
 mod vca;
 
+use by_address::ByAddress;
 use egui;
+use itertools::Itertools;
 use std::any::Any;
+use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -92,63 +95,62 @@ pub fn plan_execution(
     all_modules: &Vec<SharedSynthModule>,
     plan: &mut Vec<SharedSynthModule>,
 ) -> () {
-    let mut execution_list: Vec<(SharedSynthModule, bool)> = vec![(output, false)];
-    let mut all_modules = all_modules.clone();
-    let mut to_concat: Vec<(SharedSynthModule, bool)> = Vec::new();
+    // topological sort of a graph with cycles -- first we need to break cycles
+    let mut edges: HashMap<ByAddress<SharedSynthModule>, Vec<ByAddress<SharedSynthModule>>> =
+        HashMap::new();
+    let mut visited: HashSet<ByAddress<SharedSynthModule>> = HashSet::new();
+    let mut to_search = all_modules.clone();
     loop {
-        if let Some((idx, (to_search, searched))) = execution_list
+        // breadth first search to break cycles
+        let module = to_search.pop();
+        if module.is_none() {
+            break;
+        }
+        let module = module.unwrap();
+        if !visited.insert(ByAddress(module.clone())) {
+            continue;
+        }
+        let unlocked = module.read().unwrap();
+        edges.insert(
+            // store edges, but only to nodes which have not been visited
+            ByAddress(module.clone()),
+            get_inputs(&*unlocked)
+                .into_iter()
+                .filter(|i| i.is_some())
+                .map(|i| i.unwrap().0)
+                .filter(|m| visited.get(&ByAddress(m.clone())).is_none()) // don't create edges to
+                // nodes visited
+                .map(|m| ByAddress(m))
+                .collect(),
+        );
+    }
+    let to_search = all_modules.clone();
+    plan.clear();
+    visited.clear();
+    loop {
+        // find leaves first, then search for nodes for which children have already been visited
+        if let Some(node) = to_search
             .iter()
-            .enumerate()
-            .filter(|(_idx, (_to_search, searched))| !searched)
+            .map(|m| m.clone())
+            .filter(|m| {
+                edges
+                    .get(&ByAddress(m.clone()))
+                    .unwrap()
+                    .into_iter()
+                    .filter(|d| !visited.contains(d))
+                    .collect::<Vec<_>>()
+                    .len()
+                    == 0
+            })
+            .filter(|m| !visited.contains(&ByAddress(m.clone())))
             .next()
         {
-            // is there any module in our list we need to explore.
-            for input in get_inputs(&*to_search.read().unwrap()) {
-                // add all inputs to list if not already in list
-                if let Some((input, _)) = input {
-                    if !execution_list
-                        .iter()
-                        .any(|(to_compare, _)| shared_are_eq(&input, to_compare))
-                        && !to_concat
-                            .iter()
-                            .any(|(to_compare, _)| shared_are_eq(&input, to_compare))
-                    {
-                        to_concat.push((input, false));
-                    }
-                }
-            }
-            execution_list[idx].1 = true;
+            visited.insert(ByAddress(node.clone()));
+            plan.push(node);
         } else {
-            // start processing modules not connected to output via graph
-            if let Some(possibly_unconnected) = all_modules.pop() {
-                if !execution_list
-                    .iter()
-                    .any(|(to_compare, _)| shared_are_eq(&possibly_unconnected, to_compare))
-                {
-                    to_concat.push((possibly_unconnected, false))
-                }
-            } else {
-                // we are at end
-                break;
-            }
+            break;
         }
-        execution_list.append(&mut to_concat);
     }
-    plan.clear();
-    plan.append(
-        &mut execution_list
-            .iter()
-            .rev()
-            .map(|(sm, _searched)| {
-                println!(
-                    "{} {}",
-                    sm.read().unwrap().get_name(),
-                    sm.read().unwrap().get_id()
-                );
-                sm.clone()
-            })
-            .collect(),
-    );
 }
 
 pub fn get_inputs(module: &dyn SynthModule) -> Vec<Option<(SharedSynthModule, u8)>> {
