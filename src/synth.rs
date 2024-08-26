@@ -101,7 +101,7 @@ pub fn plan_execution(
     let mut visited: HashSet<ByAddress<SharedSynthModule>> = HashSet::new();
     let mut to_search = all_modules.clone();
     loop {
-        // breadth first search to break cycles
+        // depth first search to break cycles
         let module = to_search.pop();
         if module.is_none() {
             break;
@@ -120,7 +120,10 @@ pub fn plan_execution(
                 .map(|i| i.unwrap().0)
                 .filter(|m| visited.get(&ByAddress(m.clone())).is_none()) // don't create edges to
                 // nodes visited
-                .map(|m| ByAddress(m))
+                .map(|m| {
+                    to_search.push(m.clone());
+                    ByAddress(m)
+                })
                 .collect(),
         );
     }
