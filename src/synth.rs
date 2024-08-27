@@ -1,4 +1,5 @@
 mod adsr;
+mod filter;
 mod mixer;
 mod oscillator;
 pub mod output;
@@ -7,7 +8,6 @@ mod vca;
 
 use by_address::ByAddress;
 use egui;
-use itertools::Itertools;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
@@ -77,6 +77,13 @@ impl AudioBuffer {
             .iter_mut()
             .map(|ab| ab.as_deref_mut().map(|ab| ab.deref_mut()))
             .collect())
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        match self.get() {
+            Some(inner) => Self(Some(Arc::new(RwLock::new(inner.clone())))),
+            None => Self(None),
+        }
     }
 }
 
@@ -256,6 +263,12 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
         (
             vca::VCAModule::get_name(),
             Box::new(|audio_config| Arc::new(RwLock::new(vca::VCAModule::new(audio_config)))),
+        ),
+        (
+            filter::MoogFilterModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(filter::MoogFilterModule::new(audio_config)))
+            }),
         ),
         (
             mixer::MonoMixerModule::get_name(),
