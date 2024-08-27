@@ -11,12 +11,10 @@ pub struct ADSRModule {
     d_sec: f32,
     s_val: ControlVoltage,
     r_sec: f32,
-    // 0.0 < p < 1.0 attack
-    // 1.0 < p < 2.0 decay
-    // 2.0 < p < 3.0 release
     phase: f32,
     mode: ADSRMode,
     r_val: ControlVoltage,
+    from_a_val: ControlVoltage,
     sample_rate: f32,
     gate_in: Option<(SharedSynthModule, u8)>,
     transition_detector: TransitionDetector,
@@ -43,6 +41,7 @@ impl ADSRModule {
             phase: 0.0,
             mode: ADSRMode::None,
             r_val: 0.0,
+            from_a_val: 0.0,
             sample_rate: audio_config.sample_rate as f32,
             gate_in: None,
             transition_detector: TransitionDetector::new(),
@@ -149,6 +148,9 @@ impl SynthModule for ADSRModule {
                                 self.phase = 0.0;
                                 self.mode = ADSRMode::Decay;
                                 self.ui_dirty = true;
+                            } else if is_transition {
+                                self.phase = 0.0;
+                                self.r_val = self.from_a_val;
                             }
                         }
                         ADSRMode::Decay => {
@@ -200,6 +202,8 @@ impl SynthModule for ADSRModule {
                     };
                     if !matches!(self.mode, ADSRMode::Attack) {
                         self.r_val = output_buffer[idx];
+                    } else {
+                        self.from_a_val = output_buffer[idx];
                     }
                 }
             });
@@ -210,7 +214,7 @@ impl SynthModule for ADSRModule {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.add(
-                    egui::Slider::new(&mut self.a_sec, 0.0..=10.0)
+                    egui::Slider::new(&mut self.a_sec, 0.0..=1.0)
                         .orientation(egui::SliderOrientation::Vertical),
                 );
                 if matches!(self.mode, ADSRMode::Attack) {
@@ -221,7 +225,7 @@ impl SynthModule for ADSRModule {
             });
             ui.vertical(|ui| {
                 ui.add(
-                    egui::Slider::new(&mut self.d_sec, 0.0..=10.0)
+                    egui::Slider::new(&mut self.d_sec, 0.0..=1.0)
                         .orientation(egui::SliderOrientation::Vertical),
                 );
                 if matches!(self.mode, ADSRMode::Decay) {
