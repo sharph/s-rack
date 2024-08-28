@@ -1,4 +1,5 @@
-use crate::synth;
+use crate::synth::{self, SharedSynthModule};
+use by_address::ByAddress;
 use egui;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -159,6 +160,7 @@ impl SynthModuleWorkspace {
         let mut workspace = self.0.write().unwrap();
         let mut dirty = false;
         let mut to_delete: Option<synth::SharedSynthModule> = None;
+        let mut output_to_disconnect: Option<(synth::SharedSynthModule, u8)> = None;
 
         let (id, rect) = ui.allocate_space(ui.available_size());
         let response = ui.interact(rect, id, egui::Sense::click_and_drag());
@@ -192,6 +194,8 @@ impl SynthModuleWorkspace {
             }
         }
 
+        let mut hover_wire: Option<(SharedSynthModule, u8, SharedSynthModule, u8)> = None;
+
         for module_ref in workspace.modules.iter() {
             let mut module = module_ref.write().unwrap();
             let window_layer = ui.layer_id();
@@ -214,9 +218,22 @@ impl SynthModuleWorkspace {
                                     idx,
                                 ));
                                 if response.secondary_clicked() {
-                                    println!("disconnecting input");
                                     module.disconnect_input(idx).unwrap();
                                     dirty = true;
+                                }
+                                if let Some(payload) =
+                                    response.dnd_hover_payload::<SynthModulePort>()
+                                {
+                                    if let SynthModulePort::Output(output_module, output_port) =
+                                        Arc::as_ref(&payload)
+                                    {
+                                        hover_wire = Some((
+                                            output_module.clone(),
+                                            *output_port,
+                                            module_ref.clone(),
+                                            idx,
+                                        ));
+                                    }
                                 }
                                 if let Some(payload) =
                                     response.dnd_release_payload::<SynthModulePort>()
@@ -265,6 +282,23 @@ impl SynthModuleWorkspace {
                                     module_ref.clone(),
                                     idx,
                                 ));
+                                if response.secondary_clicked() {
+                                    output_to_disconnect = Some((module_ref.clone(), idx));
+                                }
+                                if let Some(payload) =
+                                    response.dnd_hover_payload::<SynthModulePort>()
+                                {
+                                    if let SynthModulePort::Input(input_module, input_port) =
+                                        Arc::as_ref(&payload)
+                                    {
+                                        hover_wire = Some((
+                                            module_ref.clone(),
+                                            idx,
+                                            input_module.clone(),
+                                            *input_port,
+                                        ));
+                                    }
+                                }
                                 if let Some(payload) =
                                     response.dnd_release_payload::<SynthModulePort>()
                                 {
@@ -289,8 +323,8 @@ impl SynthModuleWorkspace {
             ui.ctx().set_sublayer(window_layer, layer_id);
         }
 
-        for module in workspace.modules.iter() {
-            let module = module.read().unwrap();
+        for module_ref in workspace.modules.iter() {
+            let module = module_ref.read().unwrap();
             let window_layer = ui.layer_id();
             // create area and draw module
             let area_id = id.with(("module-connection", module.get_id()));
@@ -301,12 +335,78 @@ impl SynthModuleWorkspace {
                     ui.set_clip_rect(transform.inverse() * rect);
                     if let Some(state) = egui::AreaState::load(ui.ctx(), module_area_id) {
                         use egui::epaint::*;
-                        if let (Some(pivot_pos), Some(_size)) = (state.pivot_pos, state.size) {
+                        if let (Some(pivot_pos), Some(size)) = (state.pivot_pos, state.size) {
+                            // draw drag
+                            if let (Some(payload), Some(pointer)) = (
+                                response.dnd_hover_payload::<SynthModulePort>(),
+                                ui.ctx().pointer_interact_pos(),
+                            ) {
+                                match payload.as_ref() {
+                                    SynthModulePort::Input(payload_module, port_num) => {
+                                        if ByAddress(payload_module.clone())
+                                            == ByAddress(module_ref.clone())
+                                        {
+                                            ui.painter().line_segment(
+                                                [
+                                                    [
+                                                        pivot_pos.x + (SYNTH_HANDLE_SIZE / 2.0),
+                                                        pivot_pos.y
+                                                            + (SYNTH_HANDLE_SIZE / 2.0)
+                                                            + (*port_num as f32
+                                                                * (SYNTH_HANDLE_SIZE
+                                                                    + SYNTH_HANDLE_PADDING)),
+                                                    ]
+                                                    .into(),
+                                                    transform.inverse().mul_pos(pointer),
+                                                ],
+                                                Stroke::new(1.0, Color32::DARK_RED),
+                                            );
+                                        }
+                                    }
+                                    SynthModulePort::Output(payload_module, port_num) => {
+                                        if ByAddress(payload_module.clone())
+                                            == ByAddress(module_ref.clone())
+                                        {
+                                            ui.painter().line_segment(
+                                                [
+                                                    [
+                                                        pivot_pos.x + size.x
+                                                            - (SYNTH_HANDLE_SIZE / 2.0),
+                                                        pivot_pos.y
+                                                            + (SYNTH_HANDLE_SIZE / 2.0)
+                                                            + (*port_num as f32
+                                                                * (SYNTH_HANDLE_SIZE
+                                                                    + SYNTH_HANDLE_PADDING)),
+                                                    ]
+                                                    .into(),
+                                                    transform.inverse().mul_pos(pointer),
+                                                ],
+                                                Stroke::new(1.0, Color32::DARK_RED),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
                             // draw connections
                             for (input_idx, input_module) in
                                 synth::get_inputs(&*module).iter().enumerate()
                             {
-                                if let Some((input_module, port)) = input_module {
+                                let mut dragging = false;
+                                let mut dragged_port: Option<(SharedSynthModule, u8)> = None;
+                                if hover_wire.as_ref().is_some_and(|(_, _, m, i)| {
+                                    *i == input_idx as u8
+                                        && ByAddress(m.clone()) == ByAddress(module_ref.clone())
+                                }) {
+                                    dragged_port = Some((
+                                        hover_wire.as_ref().unwrap().0.clone(),
+                                        hover_wire.as_ref().unwrap().1,
+                                    ));
+                                    dragging = true;
+                                }
+                                if let Some((input_module, port)) =
+                                    input_module.as_ref().or_else(|| dragged_port.as_ref())
+                                {
                                     let input_module = input_module.read().unwrap();
                                     let input_module_area_id =
                                         id.with(("module", input_module.get_id()));
@@ -340,7 +440,10 @@ impl SynthModuleWorkspace {
                                                     .into(),
                                                 ]
                                                 .into(),
-                                                Stroke::new(1.0, Color32::RED),
+                                                Stroke::new(
+                                                    if dragging { 2.0 } else { 1.0 },
+                                                    Color32::RED,
+                                                ),
                                             );
                                         }
                                     }
@@ -352,6 +455,22 @@ impl SynthModuleWorkspace {
             ui.ctx()
                 .set_transform_layer(area.response.layer_id, transform);
             ui.ctx().set_sublayer(window_layer, area.response.layer_id);
+        }
+        if let Some((src_module, src_port)) = output_to_disconnect {
+            for module in workspace.modules.iter() {
+                let mut unlocked = module.write().unwrap();
+                for input_idx in 0..unlocked.get_num_inputs() {
+                    if let Some((input_module, input_port)) = unlocked.get_input(input_idx).unwrap()
+                    {
+                        if ByAddress(input_module) == ByAddress(src_module.clone())
+                            && input_port == src_port
+                        {
+                            unlocked.disconnect_input(input_idx).unwrap();
+                            dirty = true;
+                        }
+                    }
+                }
+            }
         }
         if dirty {
             workspace.plan()
