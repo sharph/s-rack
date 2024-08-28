@@ -67,7 +67,7 @@ impl SynthModule for GridSequencerModule {
                     if self.octaves >= 4 {
                         ui.disable();
                     }
-                    if ui.button("-").clicked() && self.octaves < 4 {
+                    if ui.button("+").clicked() && self.octaves < 4 {
                         self.octaves += 1;
                     }
                 });
