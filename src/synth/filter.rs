@@ -16,6 +16,7 @@ pub struct MoogFilterModule {
     buf: AudioBuffer,
     freq: f32,
     res: f32,
+    exp_amt: f32,
     state: InternalMoogFilterState,
 }
 
@@ -26,8 +27,9 @@ impl MoogFilterModule {
             audio_in: None,
             cv_in: None,
             buf: AudioBuffer::new(Some(audio_config.buffer_size)),
-            freq: 0.5,
+            freq: 0.2,
             res: 0.5,
+            exp_amt: 0.5,
             state: InternalMoogFilterState::default(),
         }
     }
@@ -184,7 +186,7 @@ impl SynthModule for MoogFilterModule {
                         };
                         (output[idx], _, _) = self.state.calc(
                             audio,
-                            (self.freq + cv).max(0.0).min(0.9),
+                            (self.freq + cv * self.exp_amt).max(0.0).min(0.9),
                             self.res.max(0.0).min(1.0),
                         );
                     }
@@ -203,9 +205,15 @@ impl SynthModule for MoogFilterModule {
                 egui::Slider::new(&mut self.res, 0.0..=1.0)
                     .orientation(egui::SliderOrientation::Vertical),
             );
+            ui.add(
+                egui::Slider::new(&mut self.exp_amt, (1.0 / 2.0_f32.powi(8))..=1.0)
+                    .logarithmic(true)
+                    .orientation(egui::SliderOrientation::Vertical),
+            );
             ui.end_row();
-            ui.label("F");
+            ui.label("f");
             ui.label("Q");
+            ui.label("Exp.");
             ui.end_row();
         });
     }
