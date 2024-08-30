@@ -198,10 +198,11 @@ impl SynthModule for SampleModule {
                         output.fill(0.0);
                         return;
                     }
-                    let wavebox = wavebox.unwrap();
+                    let mut wavebox = wavebox.unwrap();
                     if wavebox.new {
                         self.pos = 0.0;
                         self.playing = false;
+                        wavebox.new = false;
                     }
                     for (idx, out) in output.iter_mut().enumerate() {
                         let trigger = self
@@ -215,7 +216,11 @@ impl SynthModule for SampleModule {
                             self.pos = 0.0;
                             self.playing = false;
                         }
-                        *out = wavebox.samples[self.pos as usize];
+                        if wavebox.samples.len() > 0 {
+                            *out = wavebox.samples[self.pos as usize];
+                        } else {
+                            *out = 0.0;
+                        }
                         if self.playing {
                             self.pos += wavebox.sample_rate / self.sample_rate
                                 * 2.0_f32.powf(cv_in.map(|i| i[idx]).unwrap_or(0.0_f32));
