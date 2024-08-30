@@ -10,12 +10,15 @@ pub struct GridSequencerModule {
     id: String,
     cv_out: AudioBuffer,
     gate_out: AudioBuffer,
+    sync_out: AudioBuffer,
     sequence: Vec<Option<u16>>,
     octaves: u8,
     steps_per_octave: u16,
     step_in: Option<(SharedSynthModule, u8)>,
+    sync_in: Option<(SharedSynthModule, u8)>,
     current_step: u16,
     transition_detector: TransitionDetector,
+    sync_transition_detector: TransitionDetector,
     last: ControlVoltage,
     ui_dirty: bool,
 }
@@ -26,12 +29,15 @@ impl GridSequencerModule {
             id: uuid::Uuid::new_v4().into(),
             cv_out: AudioBuffer::new(Some(audio_config.buffer_size)),
             gate_out: AudioBuffer::new(Some(audio_config.buffer_size)),
+            sync_out: AudioBuffer::new(Some(audio_config.buffer_size)),
             octaves: 2,
             sequence: vec![None; 64],
             step_in: None,
+            sync_in: None,
             current_step: 0,
             steps_per_octave: 12,
             transition_detector: TransitionDetector::new(),
+            sync_transition_detector: TransitionDetector::new(),
             last: 0.0,
             ui_dirty: false,
         }
@@ -154,42 +160,61 @@ impl SynthModule for GridSequencerModule {
     }
 
     fn calc(&mut self) {
-        self.resolve_input(0).unwrap().with_read(|step_in_buf| {
-            AudioBuffer::with_write_many(
-                vec![self.cv_out.clone(), self.gate_out.clone()],
-                |bufs| {
-                    let (cv_out, gate_out) = bufs
-                        .into_iter()
-                        .map(|b| b.unwrap())
-                        .collect_tuple()
-                        .unwrap();
-                    for idx in 0..cv_out.len() {
-                        let step_in = match step_in_buf {
-                            Some(v) => &v[idx],
-                            None => &0.0,
-                        };
-                        if self.transition_detector.is_transition(step_in) {
-                            self.current_step += 1;
-                            self.ui_dirty = true;
+        AudioBuffer::with_read_many(
+            vec![
+                self.resolve_input(0).unwrap(),
+                self.resolve_input(1).unwrap(),
+            ],
+            |bufs| {
+                let (step_in_buf, sync_in_buf) = bufs.into_iter().collect_tuple().unwrap();
+                AudioBuffer::with_write_many(
+                    vec![
+                        self.cv_out.clone(),
+                        self.gate_out.clone(),
+                        self.sync_out.clone(),
+                    ],
+                    |bufs| {
+                        let (cv_out, gate_out, sync_out) = bufs
+                            .into_iter()
+                            .map(|b| b.unwrap())
+                            .collect_tuple()
+                            .unwrap();
+                        for idx in 0..cv_out.len() {
+                            let step_in = match step_in_buf {
+                                Some(v) => &v[idx],
+                                None => &0.0,
+                            };
+                            let sync_in = match sync_in_buf {
+                                Some(v) => &v[idx],
+                                None => &0.0,
+                            };
+                            if self.transition_detector.is_transition(step_in) {
+                                self.current_step += 1;
+                                self.ui_dirty = true;
+                            }
+                            if self.sync_transition_detector.is_transition(sync_in) {
+                                self.current_step = 0;
+                            }
+                            let mut current_step: usize = self.current_step.into();
+                            if current_step >= self.sequence.len() {
+                                self.current_step = 0;
+                                current_step = 0;
+                            }
+                            (cv_out[idx], gate_out[idx]) = match self.sequence[current_step] {
+                                Some(val) => (
+                                    val as ControlVoltage
+                                        * (1.0 / self.steps_per_octave as ControlVoltage),
+                                    *step_in,
+                                ),
+                                None => (self.last, 0.0),
+                            };
+                            sync_out[idx] = if current_step == 0 { 1.0 } else { 0.0 };
+                            self.last = cv_out[idx];
                         }
-                        let mut current_step: usize = self.current_step.into();
-                        if current_step >= self.sequence.len() {
-                            self.current_step = 0;
-                            current_step = 0;
-                        }
-                        (cv_out[idx], gate_out[idx]) = match self.sequence[current_step] {
-                            Some(val) => (
-                                val as ControlVoltage
-                                    * (1.0 / self.steps_per_octave as ControlVoltage),
-                                *step_in,
-                            ),
-                            None => (self.last, 0.0),
-                        };
-                        self.last = cv_out[idx];
-                    }
-                },
-            );
-        });
+                    },
+                );
+            },
+        );
     }
 
     fn get_id(&self) -> String {
@@ -203,6 +228,7 @@ impl SynthModule for GridSequencerModule {
     fn get_input(&self, input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
         match input_idx {
             0 => Ok(self.step_in.clone()),
+            1 => Ok(self.sync_in.clone()),
             _ => Err(()),
         }
     }
@@ -210,6 +236,7 @@ impl SynthModule for GridSequencerModule {
     fn get_input_label(&self, input_idx: u8) -> Result<Option<String>, ()> {
         match input_idx {
             0 => Ok(Some("Step".to_string())),
+            1 => Ok(Some("Sync".to_string())),
             _ => Err(()),
         }
     }
@@ -225,6 +252,10 @@ impl SynthModule for GridSequencerModule {
                 self.step_in = Some((src_module, src_port));
                 Ok(())
             }
+            1 => {
+                self.sync_in = Some((src_module, src_port));
+                Ok(())
+            }
             _ => Err(()),
         }
     }
@@ -233,6 +264,7 @@ impl SynthModule for GridSequencerModule {
         match output_idx {
             0 => Ok(self.cv_out.clone()),
             1 => Ok(self.gate_out.clone()),
+            2 => Ok(self.sync_out.clone()),
             _ => Err(()),
         }
     }
@@ -241,22 +273,27 @@ impl SynthModule for GridSequencerModule {
         match output_idx {
             0 => Ok(Some("CV".to_string())),
             1 => Ok(Some("Gate".to_string())),
+            2 => Ok(Some("Sync".to_string())),
             _ => Err(()),
         }
     }
 
     fn get_num_inputs(&self) -> u8 {
-        1
+        2
     }
 
     fn get_num_outputs(&self) -> u8 {
-        2
+        3
     }
 
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()> {
         match input_idx {
             0 => {
                 self.step_in = None;
+                Ok(())
+            }
+            1 => {
+                self.sync_in = None;
                 Ok(())
             }
             _ => Err(()),
