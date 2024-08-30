@@ -2782,6 +2782,7 @@ dependencies = [
  "hound",
  "itertools 0.13.0",
  "log",
+ "rand",
  "rfd",
  "uuid",
  "wasm-bindgen-futures",
