@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn topographical_sort() {
+    fn topological_sort() {
         //     0 -> 1 -> 2 -> 3 -> o
         //      \----> 4 -----^
         //        5<->6^
