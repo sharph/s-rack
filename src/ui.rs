@@ -1,6 +1,7 @@
 use crate::synth::{self, SharedSynthModule};
 use by_address::ByAddress;
 use egui;
+use std::future::Future;
 use std::sync::{Arc, Mutex, RwLock};
 
 const SYNTH_HANDLE_SIZE: f32 = 10.0;
@@ -480,4 +481,14 @@ impl SynthModuleWorkspace {
             self.delete_module(to_delete.unwrap());
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_async<F: Future<Output = ()> + Send + 'static>(f: F) {
+    std::thread::spawn(move || futures::executor::block_on(f));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn run_async<F: Future<Output = ()> + 'static>(f: F) {
+    wasm_bindgen_futures::spawn_local(f);
 }

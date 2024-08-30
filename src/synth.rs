@@ -3,6 +3,7 @@ mod filter;
 mod mixer;
 mod oscillator;
 pub mod output;
+mod sample;
 mod sequencer;
 mod vca;
 
@@ -275,6 +276,10 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
             Box::new(|audio_config| {
                 Arc::new(RwLock::new(mixer::MonoMixerModule::new(audio_config)))
             }),
+        ),
+        (
+            sample::SampleModule::get_name(),
+            Box::new(|audio_config| Arc::new(RwLock::new(sample::SampleModule::new(audio_config)))),
         ),
     ]
 }
