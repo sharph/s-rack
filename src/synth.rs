@@ -326,14 +326,14 @@ fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
 /// Unpack a module from an enum which came from deserialization
 pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynthModule {
     match synthmoduleenum {
-        SynthModuleType::OutputModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::OscillatorModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::GridSequencerModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::ADSRModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::VCAModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::MoogFilterModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::MonoMixerModule(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::SampleModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::OutputModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::OscillatorModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::GridSequencerModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::ADSRModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::VCAModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MoogFilterModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MonoMixerModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::SampleModuleV0(m) => Arc::new(RwLock::new(m)),
     }
 }
 
@@ -341,38 +341,42 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
 pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleType, ()> {
     let module = module.as_any();
     if let Some(module) = module.downcast_ref::<output::OutputModule>() {
-        return Ok(SynthModuleType::OutputModule(prep_for_serialization(
+        return Ok(SynthModuleType::OutputModuleV0(prep_for_serialization(
             &module,
         )));
     }
     if let Some(module) = module.downcast_ref::<oscillator::OscillatorModule>() {
-        return Ok(SynthModuleType::OscillatorModule(prep_for_serialization(
+        return Ok(SynthModuleType::OscillatorModuleV0(prep_for_serialization(
             &module,
         )));
     }
     if let Some(module) = module.downcast_ref::<sequencer::GridSequencerModule>() {
-        return Ok(SynthModuleType::GridSequencerModule(
+        return Ok(SynthModuleType::GridSequencerModuleV0(
             prep_for_serialization(&module),
         ));
     }
     if let Some(module) = module.downcast_ref::<adsr::ADSRModule>() {
-        return Ok(SynthModuleType::ADSRModule(prep_for_serialization(&module)));
+        return Ok(SynthModuleType::ADSRModuleV0(prep_for_serialization(
+            &module,
+        )));
     }
     if let Some(module) = module.downcast_ref::<vca::VCAModule>() {
-        return Ok(SynthModuleType::VCAModule(prep_for_serialization(&module)));
+        return Ok(SynthModuleType::VCAModuleV0(prep_for_serialization(
+            &module,
+        )));
     }
     if let Some(module) = module.downcast_ref::<filter::MoogFilterModule>() {
-        return Ok(SynthModuleType::MoogFilterModule(prep_for_serialization(
+        return Ok(SynthModuleType::MoogFilterModuleV0(prep_for_serialization(
             &module,
         )));
     }
     if let Some(module) = module.downcast_ref::<mixer::MonoMixerModule>() {
-        return Ok(SynthModuleType::MonoMixerModule(prep_for_serialization(
+        return Ok(SynthModuleType::MonoMixerModuleV0(prep_for_serialization(
             &module,
         )));
     }
     if let Some(module) = module.downcast_ref::<sample::SampleModule>() {
-        return Ok(SynthModuleType::SampleModule(prep_for_serialization(
+        return Ok(SynthModuleType::SampleModuleV0(prep_for_serialization(
             &module,
         )));
     }
