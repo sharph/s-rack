@@ -307,14 +307,14 @@ impl TransitionDetector {
 
 #[derive(Serialize, Deserialize)]
 pub enum SynthModuleType {
-    OutputModule(output::OutputModule),
-    OscillatorModule(oscillator::OscillatorModule),
-    GridSequencerModule(sequencer::GridSequencerModule),
-    ADSRModule(adsr::ADSRModule),
-    VCAModule(vca::VCAModule),
-    MoogFilterModule(filter::MoogFilterModule),
-    MonoMixerModule(mixer::MonoMixerModule),
-    SampleModule(sample::SampleModule),
+    OutputModuleV0(output::OutputModule),
+    OscillatorModuleV0(oscillator::OscillatorModule),
+    GridSequencerModuleV0(sequencer::GridSequencerModule),
+    ADSRModuleV0(adsr::ADSRModule),
+    VCAModuleV0(vca::VCAModule),
+    MoogFilterModuleV0(filter::MoogFilterModule),
+    MonoMixerModuleV0(mixer::MonoMixerModule),
+    SampleModuleV0(sample::SampleModule),
 }
 
 fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
