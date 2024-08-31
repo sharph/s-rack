@@ -1,11 +1,14 @@
-use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
+use super::{adsr, AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
 use egui;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MonoMixerModule {
     id: String,
+    #[serde(skip)]
     audio_in: Vec<Option<(SharedSynthModule, u8)>>,
     gain: Vec<f32>,
     buf: AudioBuffer,
@@ -33,6 +36,11 @@ impl SynthModule for MonoMixerModule {
 
     fn get_name(&self) -> String {
         Self::get_name()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.audio_in.resize(self.gain.len(), None);
+        self.buf.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {

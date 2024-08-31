@@ -3,14 +3,18 @@ use super::{
 };
 use egui;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::f64::consts::PI;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct OscillatorModule {
     id: String,
     pub val: ControlVoltage,
+    #[serde(skip)]
     input: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
     sync_input: Option<(SharedSynthModule, u8)>,
     sample_rate: u16,
     sine: AudioBuffer,
@@ -76,6 +80,13 @@ impl SynthModule for OscillatorModule {
 
     fn get_id(&self) -> String {
         self.id.clone()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.sample_rate = audio_config.sample_rate;
+        self.sine.resize(audio_config.buffer_size);
+        self.square.resize(audio_config.buffer_size);
+        self.saw.resize(audio_config.buffer_size);
     }
 
     fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {

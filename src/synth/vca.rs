@@ -1,11 +1,15 @@
 use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct VCAModule {
     id: String,
+    #[serde(skip)]
     audio_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
     cv_in: Option<(SharedSynthModule, u8)>,
     buf: AudioBuffer,
     negative: bool,
@@ -34,6 +38,10 @@ impl SynthModule for VCAModule {
 
     fn get_name(&self) -> String {
         Self::get_name()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.buf.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {

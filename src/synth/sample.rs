@@ -6,13 +6,14 @@ use cpal::{Sample, I24};
 use hound::{SampleFormat, WavReader};
 use itertools::Itertools;
 use rfd::AsyncFileDialog;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::error::Error;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use uuid;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct WaveBox {
     samples: Vec<ControlVoltage>,
     sample_rate: f32,
@@ -69,9 +70,12 @@ impl WaveBox {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SampleModule {
     id: String,
+    #[serde(skip)]
     gate_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
     cv_in: Option<(SharedSynthModule, u8)>,
     transition_detector: TransitionDetector,
     pos: f32,
@@ -108,6 +112,11 @@ impl SynthModule for SampleModule {
 
     fn get_name(&self) -> String {
         Self::get_name()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.sample_rate = audio_config.sample_rate as f32;
+        self.buf.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {

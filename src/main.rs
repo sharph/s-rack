@@ -5,6 +5,7 @@ use cpal::SupportedBufferSize;
 use eframe;
 use egui;
 use log;
+use rfd::AsyncFileDialog;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -30,8 +31,6 @@ struct AudioEngine {
 }
 
 impl AudioEngine {
-    fn default() {}
-
     fn new(
         audio_config: &synth::AudioConfig,
         plan: Arc<Mutex<Vec<synth::SharedSynthModule>>>,
@@ -143,19 +142,29 @@ impl eframe::App for SRackApp {
             ));
         }
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.menu_button("Modules", |ui| {
-                for (name, constuct) in synth::get_catalog() {
-                    if ui.button(name).clicked() {
-                        let audio_config = {
-                            let workspace_arc = self.workspace.value();
-                            let workspace = workspace_arc.read().unwrap();
-                            workspace.audio_config.clone()
-                        };
-                        if audio_config.is_some() {
-                            self.workspace.add_module(constuct(&audio_config.unwrap()));
+            ui.horizontal(|ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Load").clicked() {
+                        self.workspace.open();
+                    }
+                    if ui.button("Save").clicked() {
+                        self.workspace.save(ctx.clone(), &self.workspace.1.unwrap());
+                    }
+                });
+                ui.menu_button("Modules", |ui| {
+                    for (name, constuct) in synth::get_catalog() {
+                        if ui.button(name).clicked() {
+                            let audio_config = {
+                                let workspace_arc = self.workspace.value();
+                                let workspace = workspace_arc.read().unwrap();
+                                workspace.audio_config.clone()
+                            };
+                            if audio_config.is_some() {
+                                self.workspace.add_module(constuct(&audio_config.unwrap()));
+                            }
                         }
                     }
-                }
+                });
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {

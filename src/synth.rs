@@ -9,6 +9,7 @@ mod vca;
 
 use by_address::ByAddress;
 use egui;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
@@ -22,12 +23,23 @@ pub struct AudioConfig {
     pub channels: u8,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AudioBuffer(Option<Arc<RwLock<Box<[ControlVoltage]>>>>);
 
 impl AudioBuffer {
     fn new(size: Option<usize>) -> Self {
         AudioBuffer(size.map(|s| Arc::new(RwLock::new(vec![0.0; s].into_boxed_slice()))))
+    }
+
+    fn resize(&mut self, size: usize) {
+        if self.0.is_some() {
+            let locked = self.0.as_ref().unwrap().read().unwrap();
+            if locked.len() == size {
+                return;
+            }
+            drop(locked);
+            self.0 = Some(Arc::new(RwLock::new(vec![0.0; size].into_boxed_slice())));
+        }
     }
 
     fn get(&self) -> Option<RwLockReadGuard<Box<[ControlVoltage]>>> {
@@ -235,6 +247,12 @@ pub trait SynthModule: Any {
     ) -> Result<(), ()>;
     fn disconnect_input(&mut self, input_idx: u8) -> Result<(), ()>;
 
+    fn disconnect_inputs(&mut self) {
+        for idx in 0..self.get_num_inputs() {
+            self.disconnect_input(idx);
+        }
+    }
+
     #[inline]
     fn resolve_input<'a>(&'a self, input_idx: u8) -> Result<AudioBuffer, ()> {
         match self.get_input(input_idx)? {
@@ -247,6 +265,8 @@ pub trait SynthModule: Any {
     fn ui_dirty(&self) -> bool {
         false
     }
+    /// Change the audio configuration. Used after deserialize.
+    fn set_audio_config(&mut self, audio_config: &AudioConfig);
     fn as_any(&self) -> &dyn Any;
 }
 impl PartialEq for dyn SynthModule {
@@ -261,6 +281,7 @@ pub fn shared_are_eq(a: &SharedSynthModule, b: &SharedSynthModule) -> bool {
     Arc::ptr_eq(a, b)
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 struct TransitionDetector {
     last: bool,
 }
@@ -282,6 +303,80 @@ impl TransitionDetector {
         self.last = above_threshold;
         is_transition
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum SynthModuleType {
+    OutputModule(output::OutputModule),
+    OscillatorModule(oscillator::OscillatorModule),
+    GridSequencerModule(sequencer::GridSequencerModule),
+    ADSRModule(adsr::ADSRModule),
+    VCAModule(vca::VCAModule),
+    MoogFilterModule(filter::MoogFilterModule),
+    MonoMixerModule(mixer::MonoMixerModule),
+    SampleModule(sample::SampleModule),
+}
+
+fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
+    let mut module = module.clone();
+    module.disconnect_inputs();
+    module
+}
+
+/// Unpack a module from an enum which came from deserialization
+pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynthModule {
+    match synthmoduleenum {
+        SynthModuleType::OutputModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::OscillatorModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::GridSequencerModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::ADSRModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::VCAModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MoogFilterModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MonoMixerModule(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::SampleModule(m) => Arc::new(RwLock::new(m)),
+    }
+}
+
+/// Prepare a module for serialization by encapsulating it in an enum
+pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleType, ()> {
+    let module = module.as_any();
+    if let Some(module) = module.downcast_ref::<output::OutputModule>() {
+        return Ok(SynthModuleType::OutputModule(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<oscillator::OscillatorModule>() {
+        return Ok(SynthModuleType::OscillatorModule(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<sequencer::GridSequencerModule>() {
+        return Ok(SynthModuleType::GridSequencerModule(
+            prep_for_serialization(&module),
+        ));
+    }
+    if let Some(module) = module.downcast_ref::<adsr::ADSRModule>() {
+        return Ok(SynthModuleType::ADSRModule(prep_for_serialization(&module)));
+    }
+    if let Some(module) = module.downcast_ref::<vca::VCAModule>() {
+        return Ok(SynthModuleType::VCAModule(prep_for_serialization(&module)));
+    }
+    if let Some(module) = module.downcast_ref::<filter::MoogFilterModule>() {
+        return Ok(SynthModuleType::MoogFilterModule(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<mixer::MonoMixerModule>() {
+        return Ok(SynthModuleType::MonoMixerModule(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<sample::SampleModule>() {
+        return Ok(SynthModuleType::SampleModule(prep_for_serialization(
+            &module,
+        )));
+    }
+    Err(())
 }
 
 pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModule>)> {

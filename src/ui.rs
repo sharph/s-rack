@@ -1,7 +1,13 @@
 use crate::synth::{self, SharedSynthModule};
 use by_address::ByAddress;
-use egui;
+use egui::{self, pos2};
+use rfd::AsyncFileDialog;
+use rmp_serde::{Deserializer, Serializer};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::error::Error;
 use std::future::Future;
+use std::io::Cursor;
 use std::sync::{Arc, Mutex, RwLock};
 
 const SYNTH_HANDLE_SIZE: f32 = 10.0;
@@ -46,6 +52,8 @@ impl egui::Widget for &mut SynthModuleHandle {
 pub struct SynthModuleWorkspaceImpl {
     transform: egui::emath::TSTransform,
     modules: Vec<synth::SharedSynthModule>,
+    modules_pos: HashMap<String, (f32, f32)>,
+    loads: u16,
     pub plan: Arc<Mutex<Vec<synth::SharedSynthModule>>>,
     pub output: Arc<Mutex<Option<synth::SharedSynthModule>>>,
     pub audio_config: Option<synth::AudioConfig>,
@@ -83,20 +91,63 @@ impl SynthModuleWorkspaceImpl {
         }
         Err(())
     }
+
+    fn serialize(&self, ctx: egui::Context, id: &egui::Id) -> Vec<u8> {
+        let mut container = FileFormat::default();
+        let mut buf: Vec<u8> = Vec::new();
+        container.capture_modules(&self.modules);
+        container.capture_connections(&self.modules);
+        container.capture_pos(&self.modules, |module_id| {
+            let module_id = id.with(("module", module_id, self.loads));
+            if let Some(state) = egui::AreaState::load(&ctx.clone(), module_id) {
+                if let Some(pos) = state.pivot_pos {
+                    return Ok((pos.x, pos.y));
+                }
+            }
+            Err(())
+        });
+        container.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        buf
+    }
+
+    fn deserialize(&mut self, buf: &Vec<u8>) -> Result<(), Box<dyn Error>> {
+        // first clear state
+        for module in self.modules.iter() {
+            let mut locked = module.write().unwrap();
+            locked.disconnect_inputs();
+        }
+        self.loads += 1;
+        self.modules.clear();
+        let reader = Cursor::new(buf);
+        let mut container = FileFormat::deserialize(&mut Deserializer::new(reader))?;
+        self.modules_pos.clear();
+        container.unpack_pos(|module_id, (x, y)| {
+            self.modules_pos.insert(module_id, (x, y));
+        });
+        container.unpack_modules(&mut self.modules, &self.audio_config.as_ref().unwrap());
+        container.unpack_connections(&mut self.modules)?;
+        self.plan();
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
-pub struct SynthModuleWorkspace(Arc<RwLock<SynthModuleWorkspaceImpl>>);
+pub struct SynthModuleWorkspace(Arc<RwLock<SynthModuleWorkspaceImpl>>, pub Option<egui::Id>);
 
 impl SynthModuleWorkspace {
     pub fn new() -> Self {
-        SynthModuleWorkspace(Arc::new(RwLock::new(SynthModuleWorkspaceImpl {
-            transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
-            modules: vec![],
-            plan: Arc::new(Mutex::new(vec![])),
-            output: Arc::new(Mutex::new(None)),
-            audio_config: None,
-        })))
+        SynthModuleWorkspace(
+            Arc::new(RwLock::new(SynthModuleWorkspaceImpl {
+                transform: egui::emath::TSTransform::new([0.0, 0.0].into(), 1.0),
+                modules_pos: HashMap::new(),
+                modules: vec![],
+                plan: Arc::new(Mutex::new(vec![])),
+                output: Arc::new(Mutex::new(None)),
+                audio_config: None,
+                loads: 0,
+            })),
+            None,
+        )
     }
 
     pub fn value(&self) -> Arc<RwLock<SynthModuleWorkspaceImpl>> {
@@ -157,6 +208,44 @@ impl SynthModuleWorkspace {
         workspace.plan();
     }
 
+    pub fn open(&mut self) {
+        let inner_workspace = self.0.clone();
+        run_async(async move {
+            let file_dialog = AsyncFileDialog::new()
+                .add_filter("s-rack", &["srk"])
+                .pick_file()
+                .await;
+            if let Some(file) = file_dialog {
+                let data = file.read().await;
+                let mut unlocked = inner_workspace.write().unwrap();
+                let _ = unlocked.deserialize(&data);
+            }
+        });
+    }
+
+    pub fn save(&mut self, ctx: egui::Context, id: &egui::Id) {
+        let inner_workspace = self.0.clone();
+        let id = id.clone();
+        run_async(async move {
+            let file_dialog = AsyncFileDialog::new()
+                .add_filter("s-rack", &["srk"])
+                .set_file_name("Patch.srk")
+                .save_file()
+                .await;
+            match file_dialog {
+                Some(file) => {
+                    let buf;
+                    {
+                        let locked = inner_workspace.read().unwrap();
+                        buf = locked.serialize(ctx, &id);
+                    }
+                    let _ = file.write(&buf).await;
+                }
+                None => (),
+            }
+        });
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let mut workspace = self.0.write().unwrap();
         let mut dirty = false;
@@ -164,6 +253,7 @@ impl SynthModuleWorkspace {
         let mut output_to_disconnect: Option<(synth::SharedSynthModule, u8)> = None;
 
         let (id, rect) = ui.allocate_space(ui.available_size());
+        self.1 = Some(id);
         let response = ui.interact(rect, id, egui::Sense::click_and_drag());
         // Allow dragging the background as well.
         if response.dragged() {
@@ -201,10 +291,16 @@ impl SynthModuleWorkspace {
             let mut module = module_ref.write().unwrap();
             let window_layer = ui.layer_id();
             // create area and draw module
-            let area_id = id.with(("module", module.get_id()));
+            let area_id = id.with(("module", module.get_id(), workspace.loads));
             let area = egui::Area::new(area_id)
                 .constrain(false)
-                .default_pos(egui::pos2(100.0, 100.0))
+                .default_pos(
+                    workspace
+                        .modules_pos
+                        .get(&module.get_id())
+                        .map(|(x, y)| pos2(*x, *y))
+                        .unwrap_or(pos2(100.0, 100.0)),
+                )
                 .order(egui::Order::Middle)
                 .show(ui.ctx(), |ui| {
                     ui.set_clip_rect(transform.inverse() * rect);
@@ -329,7 +425,7 @@ impl SynthModuleWorkspace {
             let window_layer = ui.layer_id();
             // create area and draw module
             let area_id = id.with(("module-connection", module.get_id()));
-            let module_area_id = id.with(("module", module.get_id()));
+            let module_area_id = id.with(("module", module.get_id(), workspace.loads));
             let area = egui::Area::new(area_id)
                 .fixed_pos((0.0, 0.0))
                 .show(ui.ctx(), |ui| {
@@ -410,7 +506,7 @@ impl SynthModuleWorkspace {
                                 {
                                     let input_module = input_module.read().unwrap();
                                     let input_module_area_id =
-                                        id.with(("module", input_module.get_id()));
+                                        id.with(("module", input_module.get_id(), workspace.loads));
                                     if let Some(input_module_area_state) =
                                         egui::AreaState::load(ui.ctx(), input_module_area_id)
                                     {
@@ -480,6 +576,112 @@ impl SynthModuleWorkspace {
         if to_delete.is_some() {
             self.delete_module(to_delete.unwrap());
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct FileFormat {
+    modules: Vec<synth::SynthModuleType>,
+    /// List of connections in (src_id, src_port, sink_id, sink_port) format
+    connections: Vec<(String, u8, String, u8)>,
+
+    /// List of workspace positions for modules by id
+    positions: Vec<(String, (f32, f32))>,
+}
+
+impl FileFormat {
+    fn capture_pos<F>(&mut self, modules: &Vec<SharedSynthModule>, get_pos: F)
+    where
+        F: Fn(String) -> Result<(f32, f32), ()>,
+    {
+        for module in modules {
+            let unlocked = module.read().unwrap();
+            let id = unlocked.get_id();
+            drop(unlocked);
+            if let Ok(pos) = get_pos(id.clone()) {
+                self.positions.push((id, pos));
+            }
+        }
+    }
+
+    fn unpack_pos<F>(&mut self, mut set_pos: F)
+    where
+        F: FnMut(String, (f32, f32)),
+    {
+        while let Some((id, pos)) = self.positions.pop() {
+            set_pos(id, pos);
+        }
+    }
+
+    fn capture_connections(&mut self, modules: &Vec<SharedSynthModule>) {
+        let mut id_map: HashMap<ByAddress<SharedSynthModule>, String> = HashMap::new();
+        for module in modules {
+            let unlocked = module.read().unwrap();
+            id_map.insert(ByAddress(module.clone()), unlocked.get_id());
+        }
+        for module in modules {
+            let unlocked = module.read().unwrap();
+            for (sink_port, (source_module, source_port)) in synth::get_inputs(&*unlocked)
+                .into_iter()
+                .enumerate()
+                .filter(|(_, i)| i.is_some())
+                .map(|(idx, i)| (idx, i.unwrap()))
+            {
+                self.connections.push((
+                    id_map
+                        .get(&ByAddress(source_module.clone()))
+                        .unwrap()
+                        .to_string(),
+                    source_port,
+                    unlocked.get_id(),
+                    sink_port as u8,
+                ))
+            }
+        }
+    }
+
+    fn capture_modules(&mut self, modules: &Vec<SharedSynthModule>) {
+        for module in modules {
+            let unlocked = module.read().unwrap();
+            self.modules.push(
+                synth::any_module_to_enum(Box::new(&*unlocked))
+                    .expect("Unable to prepare module for serialization"),
+            );
+        }
+    }
+
+    fn unpack_modules(
+        &mut self,
+        modules: &mut Vec<SharedSynthModule>,
+        audio_config: &synth::AudioConfig,
+    ) {
+        while let Some(module) = self.modules.pop() {
+            let module = synth::enum_to_sharedsynthmodule(module);
+            let mut locked = module.write().unwrap();
+            locked.set_audio_config(audio_config);
+            drop(locked);
+            modules.push(module);
+        }
+    }
+
+    fn unpack_connections(
+        &mut self,
+        modules: &Vec<SharedSynthModule>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut id_map: HashMap<String, ByAddress<SharedSynthModule>> = HashMap::new();
+        for module in modules {
+            let unlocked = module.read().unwrap();
+            id_map.insert(unlocked.get_id(), ByAddress(module.clone()));
+        }
+        while let Some((src_id, src_port, sink_id, sink_port)) = self.connections.pop() {
+            if let (Some(sink_module), Some(src_module)) =
+                (id_map.get(&sink_id), id_map.get(&src_id))
+            {
+                let mut unlocked = sink_module.write().unwrap();
+                let _ = unlocked.set_input(sink_port, (**src_module).clone(), src_port);
+            }
+        }
+        Ok(())
     }
 }
 

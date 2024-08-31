@@ -1,10 +1,13 @@
 use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct OutputModule {
     id: String,
     pub bufs: Box<[AudioBuffer]>,
+    #[serde(skip)]
     inputs: Box<[Option<(SharedSynthModule, u8)>]>,
 }
 
@@ -31,6 +34,13 @@ impl SynthModule for OutputModule {
 
     fn get_id(&self) -> String {
         self.id.clone()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.inputs = (0..audio_config.channels).map(|_| None).collect();
+        self.bufs = (0..audio_config.channels)
+            .map(|_| AudioBuffer::new(Some(audio_config.buffer_size)))
+            .collect();
     }
 
     fn calc(&mut self) {

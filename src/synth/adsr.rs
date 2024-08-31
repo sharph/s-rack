@@ -2,9 +2,11 @@ use super::{
     AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule, TransitionDetector,
 };
 use egui;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ADSRModule {
     id: String,
     a_sec: f32,
@@ -16,12 +18,14 @@ pub struct ADSRModule {
     r_val: ControlVoltage,
     from_a_val: ControlVoltage,
     sample_rate: f32,
+    #[serde(skip)]
     gate_in: Option<(SharedSynthModule, u8)>,
     transition_detector: TransitionDetector,
     output_buffer: AudioBuffer,
     ui_dirty: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 enum ADSRMode {
     Attack,
     Decay,
@@ -62,6 +66,10 @@ impl SynthModule for ADSRModule {
 
     fn get_name(&self) -> String {
         Self::get_name()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.output_buffer.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {

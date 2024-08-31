@@ -1,6 +1,7 @@
 use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
 use egui;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
@@ -9,9 +10,12 @@ use uuid;
 /// and the implementation at
 /// https://www.musicdsp.org/en/latest/Filters/25-moog-vcf-variation-1.html
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MoogFilterModule {
     id: String,
+    #[serde(skip)]
     audio_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
     cv_in: Option<(SharedSynthModule, u8)>,
     buf: AudioBuffer,
     freq: f32,
@@ -39,7 +43,7 @@ impl MoogFilterModule {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 struct InternalMoogFilterState {
     f: f32,
     p: f32,
@@ -92,6 +96,10 @@ impl SynthModule for MoogFilterModule {
 
     fn get_name(&self) -> String {
         Self::get_name()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.buf.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {

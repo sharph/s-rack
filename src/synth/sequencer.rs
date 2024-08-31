@@ -3,9 +3,11 @@ use super::{
 };
 use egui;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use uuid;
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GridSequencerModule {
     id: String,
     cv_out: AudioBuffer,
@@ -14,7 +16,9 @@ pub struct GridSequencerModule {
     sequence: Vec<Option<u16>>,
     octaves: u8,
     steps_per_octave: u16,
+    #[serde(skip)]
     step_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
     sync_in: Option<(SharedSynthModule, u8)>,
     current_step: u16,
     transition_detector: TransitionDetector,
@@ -54,6 +58,12 @@ const GRID_CELL_PADDING: f32 = 1.0;
 impl SynthModule for GridSequencerModule {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.cv_out.resize(audio_config.buffer_size);
+        self.gate_out.resize(audio_config.buffer_size);
+        self.sync_out.resize(audio_config.buffer_size);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
