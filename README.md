@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-%23000000.svg?e&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Rust CI Status](https://github.com/sharph/s-rack/actions/workflows/rust.yml/badge.svg)](https://github.com/sharph/s-rack/actions/workflows/rust.yml)
-[![Made with love at the Recurse Center](https://cloud.githubusercontent.com/assets/2883345/11325206/336ea5f4-9150-11e5-9e90-d86ad31993d8.png)](https://www.recurse.com/)
+[<img alt="Made with love at the Recurse Center" src="https://cloud.githubusercontent.com/assets/2883345/11325206/336ea5f4-9150-11e5-9e90-d86ad31993d8.png" height="20">](https://www.recurse.com/)
 
 A modular softsynth
 
