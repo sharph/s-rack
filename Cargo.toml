@@ -65,4 +65,4 @@ install-path = "CARGO_HOME"
 install-updater = false
 
 [workspace.metadata.dist.dependencies.apt]
-asound2-dev = '*'
+libasound2-dev = '*'
