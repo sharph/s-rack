@@ -2,10 +2,18 @@
 name = "s-rack"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/sharph/s-rack"
+authors = ["Sharp Hall <sharp@sharphall.org>"]
 
 [package.metadata.docs.rs]
 all-features = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[package.metadata.wix]
+upgrade-guid = "D45C9789-E08F-47C7-8741-A7D8F2ABA524"
+path-guid = "68C33B7C-EA10-4256-BBB6-63596094B2D4"
+license = false
+eula = false
 
 [dependencies]
 cpal = { version = "0.15.3", features = ["wasm-bindgen"] }
@@ -36,3 +44,25 @@ wasm-bindgen-futures = "0.4"
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3.4"
 
+# The profile that 'cargo dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'cargo dist'
+[workspace.metadata.dist]
+# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.22.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "msi"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+
+[workspace.metadata.dist.dependencies.apt]
+asound2-dev = '*'
