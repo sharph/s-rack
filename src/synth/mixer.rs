@@ -1,4 +1,4 @@
-use super::{adsr, AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
+use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
 use egui;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};

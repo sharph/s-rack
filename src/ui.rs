@@ -203,11 +203,6 @@ impl SynthModuleWorkspace {
         workspace.plan.clone()
     }
 
-    pub fn plan(&mut self) -> () {
-        let mut workspace = self.0.write().unwrap();
-        workspace.plan();
-    }
-
     pub fn open(&mut self) {
         let inner_workspace = self.0.clone();
         run_async(async move {

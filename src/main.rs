@@ -1,11 +1,8 @@
 use cpal::traits::DeviceTrait;
 use cpal::traits::HostTrait;
 use cpal::traits::StreamTrait;
-use cpal::SupportedBufferSize;
 use eframe;
 use egui;
-use log;
-use rfd::AsyncFileDialog;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -26,8 +23,8 @@ fn main() -> eframe::Result {
 }
 
 struct AudioEngine {
-    stream: cpal::Stream,
-    audio_config: synth::AudioConfig,
+    // stream: cpal::Stream,
+    // audio_config: synth::AudioConfig,
 }
 
 impl AudioEngine {
@@ -98,8 +95,8 @@ impl AudioEngine {
             .unwrap();
         stream.play().unwrap();
         Self {
-            stream,
-            audio_config: audio_config.clone(),
+            // stream,
+            // audio_config: audio_config.clone(),
         }
     }
 }
@@ -175,6 +172,7 @@ impl eframe::App for SRackApp {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    use log;
     let audio_config = synth::AudioConfig {
         sample_rate: 48000,
         channels: 2,

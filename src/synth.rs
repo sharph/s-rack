@@ -91,13 +91,6 @@ impl AudioBuffer {
             .map(|ab| ab.as_deref_mut().map(|ab| ab.deref_mut()))
             .collect())
     }
-
-    pub fn deep_clone(&self) -> Self {
-        match self.get() {
-            Some(inner) => Self(Some(Arc::new(RwLock::new(inner.clone())))),
-            None => Self(None),
-        }
-    }
 }
 
 pub fn execute(plan: &Vec<SharedSynthModule>) {
@@ -249,7 +242,7 @@ pub trait SynthModule: Any {
 
     fn disconnect_inputs(&mut self) {
         for idx in 0..self.get_num_inputs() {
-            self.disconnect_input(idx);
+            let _ = self.disconnect_input(idx);
         }
     }
 
