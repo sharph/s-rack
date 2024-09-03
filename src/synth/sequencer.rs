@@ -13,7 +13,7 @@ pub struct GridSequencerModule {
     cv_out: AudioBuffer,
     gate_out: AudioBuffer,
     sync_out: AudioBuffer,
-    sequence: Vec<Option<u16>>,
+    sequence: Vec<Option<(u16, bool)>>,
     octaves: u8,
     steps_per_octave: u16,
     #[serde(skip)]
@@ -153,15 +153,20 @@ impl SynthModule for GridSequencerModule {
                 if usize::from(self.current_step) == col {
                     color = egui::Color32::RED;
                 }
-                if self.sequence[usize::from(col)] == Some(row) {
+                if self.sequence[usize::from(col)] == Some((row, true)) {
                     color = egui::Color32::BLACK;
+                }
+                if self.sequence[usize::from(col)] == Some((row, false)) {
+                    color = egui::Color32::BLUE;
                 }
                 ui.painter().rect_filled(rect, 1.0, color);
                 if clicked && ui.rect_contains_pointer(rect) {
-                    if self.sequence[usize::from(col)] == Some(row) {
+                    if self.sequence[usize::from(col)] == Some((row, true)) {
+                        self.sequence[usize::from(col)] = Some((row, false));
+                    } else if self.sequence[usize::from(col)] == Some((row, false)) {
                         self.sequence[usize::from(col)] = None;
                     } else {
-                        self.sequence[usize::from(col)] = Some(row);
+                        self.sequence[usize::from(col)] = Some((row, true));
                     }
                 }
             }
@@ -211,10 +216,10 @@ impl SynthModule for GridSequencerModule {
                                 current_step = 0;
                             }
                             (cv_out[idx], gate_out[idx]) = match self.sequence[current_step] {
-                                Some(val) => (
+                                Some((val, hold)) => (
                                     val as ControlVoltage
                                         * (1.0 / self.steps_per_octave as ControlVoltage),
-                                    *step_in,
+                                    if hold { 1.0 } else { *step_in },
                                 ),
                                 None => (self.last, 0.0),
                             };
@@ -312,5 +317,50 @@ impl SynthModule for GridSequencerModule {
 
     fn ui_dirty(&self) -> bool {
         self.ui_dirty
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GridSequencerModuleV0 {
+    id: String,
+    cv_out: AudioBuffer,
+    gate_out: AudioBuffer,
+    sync_out: AudioBuffer,
+    sequence: Vec<Option<u16>>,
+    octaves: u8,
+    steps_per_octave: u16,
+    #[serde(skip)]
+    step_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
+    sync_in: Option<(SharedSynthModule, u8)>,
+    current_step: u16,
+    transition_detector: TransitionDetector,
+    sync_transition_detector: TransitionDetector,
+    last: ControlVoltage,
+    ui_dirty: bool,
+}
+
+impl From<GridSequencerModuleV0> for GridSequencerModule {
+    fn from(item: GridSequencerModuleV0) -> Self {
+        Self {
+            id: item.id,
+            cv_out: item.cv_out,
+            gate_out: item.gate_out,
+            sync_out: item.sync_out,
+            sequence: item
+                .sequence
+                .into_iter()
+                .map(|v| v.map(|v| (v, false)))
+                .collect(),
+            octaves: item.octaves,
+            steps_per_octave: item.steps_per_octave,
+            step_in: item.step_in,
+            sync_in: item.sync_in,
+            current_step: item.current_step,
+            transition_detector: item.transition_detector,
+            sync_transition_detector: item.sync_transition_detector,
+            last: item.last,
+            ui_dirty: item.ui_dirty,
+        }
     }
 }

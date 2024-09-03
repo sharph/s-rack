@@ -302,7 +302,8 @@ impl TransitionDetector {
 pub enum SynthModuleType {
     OutputModuleV0(output::OutputModule),
     OscillatorModuleV0(oscillator::OscillatorModule),
-    GridSequencerModuleV0(sequencer::GridSequencerModule),
+    GridSequencerModuleV0(sequencer::GridSequencerModuleV0),
+    GridSequencerModuleV1(sequencer::GridSequencerModule),
     ADSRModuleV0(adsr::ADSRModule),
     VCAModuleV0(vca::VCAModule),
     MoogFilterModuleV0(filter::MoogFilterModule),
@@ -321,7 +322,10 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
     match synthmoduleenum {
         SynthModuleType::OutputModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::OscillatorModuleV0(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::GridSequencerModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::GridSequencerModuleV0(m) => {
+            Arc::new(RwLock::new(sequencer::GridSequencerModule::from(m)))
+        }
+        SynthModuleType::GridSequencerModuleV1(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::ADSRModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::VCAModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MoogFilterModuleV0(m) => Arc::new(RwLock::new(m)),
@@ -344,7 +348,7 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
         )));
     }
     if let Some(module) = module.downcast_ref::<sequencer::GridSequencerModule>() {
-        return Ok(SynthModuleType::GridSequencerModuleV0(
+        return Ok(SynthModuleType::GridSequencerModuleV1(
             prep_for_serialization(&module),
         ));
     }
