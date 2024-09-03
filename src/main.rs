@@ -23,8 +23,8 @@ fn main() -> eframe::Result {
 }
 
 struct AudioEngine {
-    // stream: cpal::Stream,
-    // audio_config: synth::AudioConfig,
+    stream: cpal::Stream,
+    audio_config: synth::AudioConfig,
 }
 
 impl AudioEngine {
@@ -95,8 +95,8 @@ impl AudioEngine {
             .unwrap();
         stream.play().unwrap();
         Self {
-            // stream,
-            // audio_config: audio_config.clone(),
+            stream,
+            audio_config: audio_config.clone(),
         }
     }
 }
