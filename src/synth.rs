@@ -9,6 +9,7 @@ mod vca;
 
 use by_address::ByAddress;
 use egui;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -304,6 +305,7 @@ pub enum SynthModuleType {
     OscillatorModuleV0(oscillator::OscillatorModule),
     GridSequencerModuleV0(sequencer::GridSequencerModuleV0),
     GridSequencerModuleV1(sequencer::GridSequencerModule),
+    PatternSequencerModuleV0(sequencer::PatternSequencerModule),
     ADSRModuleV0(adsr::ADSRModule),
     VCAModuleV0(vca::VCAModule),
     MoogFilterModuleV0(filter::MoogFilterModule),
@@ -326,6 +328,7 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
             Arc::new(RwLock::new(sequencer::GridSequencerModule::from(m)))
         }
         SynthModuleType::GridSequencerModuleV1(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::PatternSequencerModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::ADSRModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::VCAModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MoogFilterModuleV0(m) => Arc::new(RwLock::new(m)),
@@ -349,6 +352,11 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     }
     if let Some(module) = module.downcast_ref::<sequencer::GridSequencerModule>() {
         return Ok(SynthModuleType::GridSequencerModuleV1(
+            prep_for_serialization(&module),
+        ));
+    }
+    if let Some(module) = module.downcast_ref::<sequencer::PatternSequencerModule>() {
+        return Ok(SynthModuleType::PatternSequencerModuleV0(
             prep_for_serialization(&module),
         ));
     }
@@ -392,6 +400,14 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
             sequencer::GridSequencerModule::get_name(),
             Box::new(|audio_config| {
                 Arc::new(RwLock::new(sequencer::GridSequencerModule::new(
+                    audio_config,
+                )))
+            }),
+        ),
+        (
+            sequencer::PatternSequencerModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(sequencer::PatternSequencerModule::new(
                     audio_config,
                 )))
             }),
