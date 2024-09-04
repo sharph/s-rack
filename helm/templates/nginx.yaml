@@ -24,8 +24,12 @@ spec:
           name: http
           protocol: TCP
         resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
           limits:
             memory: 512Mi
+            cpu: 500m
         startupProbe:
           httpGet:
             path: /
@@ -50,6 +54,24 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 10
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: s-rack
+spec:
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - resource:
+        name: cpu
+        target:
+          averageUtilization: {{ .Values.autoscaling.utilization }}
+          type: Utilization
+      type: Resource
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: s-rack
 ---
 apiVersion: v1
 kind: Service

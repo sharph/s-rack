@@ -1,3 +1,6 @@
 image:
   tag: latest
 domain: latest.s-rack.app
+autoscaling:
+  maxReplicas: 4
+  utilization: 75
