@@ -78,8 +78,8 @@ impl AudioBuffer {
         f: F,
     ) -> T {
         let unlocked: Vec<_> = cv.iter().map(|ab| ab.get()).collect();
-        let derefed: Vec<_> = unlocked.iter().map(|ab| ab.as_ref()).collect();
-        f(derefed.iter().map(|ab| ab.map(|ab| ab.as_ref())).collect())
+        let asrefed: Vec<_> = unlocked.iter().map(|ab| ab.as_ref()).collect();
+        f(asrefed.iter().map(|ab| ab.map(|ab| ab.as_ref())).collect())
     }
 
     pub fn with_write_many<T, F: FnOnce(Vec<Option<&mut [ControlVoltage]>>) -> T>(
