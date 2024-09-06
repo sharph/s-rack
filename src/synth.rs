@@ -313,6 +313,7 @@ pub enum SynthModuleType {
     MonoMixerModuleV0(mixer::MonoMixerModule),
     SampleModuleV0(sample::SampleModule),
     MathModuleV0(math::MathModule),
+    NonLinearModuleV0(math::NonLinearModule),
 }
 
 fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
@@ -337,6 +338,7 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
         SynthModuleType::MonoMixerModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::SampleModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MathModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::NonLinearModuleV0(m) => Arc::new(RwLock::new(m)),
     }
 }
 
@@ -390,6 +392,11 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     }
     if let Some(module) = module.downcast_ref::<math::MathModule>() {
         return Ok(SynthModuleType::MathModuleV0(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<math::NonLinearModule>() {
+        return Ok(SynthModuleType::NonLinearModuleV0(prep_for_serialization(
             &module,
         )));
     }
@@ -469,6 +476,12 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
                     audio_config,
                     math::MathOperation::Multiply,
                 )))
+            }),
+        ),
+        (
+            math::NonLinearModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(math::NonLinearModule::new(audio_config)))
             }),
         ),
     ]
