@@ -1,5 +1,6 @@
 mod adsr;
 mod filter;
+mod math;
 mod mixer;
 mod oscillator;
 pub mod output;
@@ -311,6 +312,7 @@ pub enum SynthModuleType {
     MoogFilterModuleV0(filter::MoogFilterModule),
     MonoMixerModuleV0(mixer::MonoMixerModule),
     SampleModuleV0(sample::SampleModule),
+    MathModuleV0(math::MathModule),
 }
 
 fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
@@ -334,6 +336,7 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
         SynthModuleType::MoogFilterModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MonoMixerModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::SampleModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MathModuleV0(m) => Arc::new(RwLock::new(m)),
     }
 }
 
@@ -382,6 +385,11 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     }
     if let Some(module) = module.downcast_ref::<sample::SampleModule>() {
         return Ok(SynthModuleType::SampleModuleV0(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<math::MathModule>() {
+        return Ok(SynthModuleType::MathModuleV0(prep_for_serialization(
             &module,
         )));
     }
@@ -435,6 +443,33 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
         (
             sample::SampleModule::get_name(),
             Box::new(|audio_config| Arc::new(RwLock::new(sample::SampleModule::new(audio_config)))),
+        ),
+        (
+            math::MathModule::get_name(&math::MathOperation::Add),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(math::MathModule::new(
+                    audio_config,
+                    math::MathOperation::Add,
+                )))
+            }),
+        ),
+        (
+            math::MathModule::get_name(&math::MathOperation::Subtract),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(math::MathModule::new(
+                    audio_config,
+                    math::MathOperation::Subtract,
+                )))
+            }),
+        ),
+        (
+            math::MathModule::get_name(&math::MathOperation::Multiply),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(math::MathModule::new(
+                    audio_config,
+                    math::MathOperation::Multiply,
+                )))
+            }),
         ),
     ]
 }
