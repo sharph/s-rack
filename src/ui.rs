@@ -294,7 +294,9 @@ impl SynthModuleWorkspace {
                         .modules_pos
                         .get(&module.get_id())
                         .map(|(x, y)| pos2(*x, *y))
-                        .unwrap_or(pos2(100.0, 100.0)),
+                        .unwrap_or(
+                            transform.inverse() * pos2((rect.width()) / 2.0, (rect.height()) / 2.0),
+                        ),
                 )
                 .order(egui::Order::Middle)
                 .show(ui.ctx(), |ui| {
