@@ -1,6 +1,6 @@
 [package]
 name = "s-rack"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/sharph/s-rack"
 authors = ["Sharp Hall <sharp@sharphall.org>"]
@@ -33,7 +33,7 @@ rmp-serde = "1.3.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.10"
+env_logger = "0.11.5"
 futures = "0.3.30"
 
 # web:
@@ -42,7 +42,7 @@ wasm-bindgen-futures = "0.4"
 
 # to access the DOM (to hide the loading text)
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "0.3.4"
+version = "0.3.70"
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
