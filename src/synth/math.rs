@@ -1,7 +1,7 @@
 use super::{AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::{any::Any, ops::Add};
+use std::any::Any;
 use uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
