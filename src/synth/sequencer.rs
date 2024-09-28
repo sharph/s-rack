@@ -55,6 +55,17 @@ impl GridSequencerModule {
     }
 }
 
+fn is_black_key(note: u16) -> bool {
+    match note % 12 {
+        1 => true,
+        3 => true,
+        6 => true,
+        8 => true,
+        10 => true,
+        _ => false,
+    }
+}
+
 impl SynthModule for GridSequencerModule {
     fn as_any(&self) -> &dyn Any {
         self
@@ -146,6 +157,9 @@ impl SynthModule for GridSequencerModule {
                 let mut color = egui::Color32::LIGHT_GRAY;
                 if col % 4 == 0 {
                     color = egui::Color32::GRAY;
+                }
+                if is_black_key(row) {
+                    color = egui::Color32::DARK_GRAY;
                 }
                 if row % self.steps_per_octave == 0 {
                     color = egui::Color32::YELLOW;

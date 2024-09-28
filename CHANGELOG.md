@@ -2,6 +2,7 @@
 
 ## Upcoming release
 
+* Show black keys on sequencer
 * Add noise module
 
 ## 0.2.0
