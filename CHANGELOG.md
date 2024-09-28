@@ -4,6 +4,7 @@
 
 * Show black keys on sequencer
 * Add noise module
+* Don't show console on windows
 
 ## 0.2.0
 

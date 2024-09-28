@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use cpal::traits::DeviceTrait;
 use cpal::traits::HostTrait;
 use cpal::traits::StreamTrait;
