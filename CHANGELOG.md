@@ -1,5 +1,9 @@
 # Changelog
 
+## Upcoming release
+
+* Add noise module
+
 ## 0.2.0
 
 * Add "Add", "Subtract", "Multiply" and "Non-Linear" modules

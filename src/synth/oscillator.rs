@@ -306,3 +306,94 @@ mod dco_tests {
         assert!((buf[0] - 1.0).abs() < 0.00001); // should continue smoothly into next buffer
     }
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NoiseModule {
+    id: String,
+    out: AudioBuffer,
+}
+
+impl NoiseModule {
+    pub fn new(audio_config: &AudioConfig) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().into(),
+            out: AudioBuffer::new(Some(audio_config.buffer_size)),
+        }
+    }
+
+    pub fn get_name() -> String {
+        "Noise".to_string()
+    }
+}
+
+impl SynthModule for NoiseModule {
+    fn get_name(&self) -> String {
+        Self::get_name()
+    }
+
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn set_audio_config(&mut self, audio_config: &AudioConfig) {
+        self.out.resize(audio_config.buffer_size);
+    }
+
+    fn get_input(&self, _input_idx: u8) -> Result<Option<(SharedSynthModule, u8)>, ()> {
+        Err(())
+    }
+
+    fn get_num_inputs(&self) -> u8 {
+        0
+    }
+
+    fn get_input_label(&self, _input_idx: u8) -> Result<Option<String>, ()> {
+        Err(())
+    }
+
+    fn set_input(
+        &mut self,
+        _input_idx: u8,
+        _src_module: SharedSynthModule,
+        _src_port: u8,
+    ) -> Result<(), ()> {
+        Err(())
+    }
+
+    fn get_num_outputs(&self) -> u8 {
+        1
+    }
+
+    fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
+        if output_idx == 0 {
+            Ok(self.out.clone())
+        } else {
+            Err(())
+        }
+    }
+
+    fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
+        if output_idx == 0 {
+            Ok(None)
+        } else {
+            Err(())
+        }
+    }
+
+    fn disconnect_input(&mut self, _input_idx: u8) -> Result<(), ()> {
+        Err(())
+    }
+
+    fn calc(&mut self) {
+        self.out.with_write(|out| {
+            let out = out.unwrap();
+            for sample in out.iter_mut() {
+                *sample = (rand::random::<f32>() - 0.5) * 2.0;
+            }
+        });
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        return self;
+    }
+}

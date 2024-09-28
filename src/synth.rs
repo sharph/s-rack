@@ -303,6 +303,7 @@ impl TransitionDetector {
 pub enum SynthModuleType {
     OutputModuleV0(output::OutputModule),
     OscillatorModuleV0(oscillator::OscillatorModule),
+    NoiseModuleV0(oscillator::NoiseModule),
     GridSequencerModuleV0(sequencer::GridSequencerModuleV0),
     GridSequencerModuleV1(sequencer::GridSequencerModule),
     PatternSequencerModuleV0(sequencer::PatternSequencerModule),
@@ -326,6 +327,7 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
     match synthmoduleenum {
         SynthModuleType::OutputModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::OscillatorModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::NoiseModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::GridSequencerModuleV0(m) => {
             Arc::new(RwLock::new(sequencer::GridSequencerModule::from(m)))
         }
@@ -351,6 +353,11 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     }
     if let Some(module) = module.downcast_ref::<oscillator::OscillatorModule>() {
         return Ok(SynthModuleType::OscillatorModuleV0(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<oscillator::NoiseModule>() {
+        return Ok(SynthModuleType::NoiseModuleV0(prep_for_serialization(
             &module,
         )));
     }
@@ -408,6 +415,12 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
             oscillator::OscillatorModule::get_name(),
             Box::new(|audio_config| {
                 Arc::new(RwLock::new(oscillator::OscillatorModule::new(audio_config)))
+            }),
+        ),
+        (
+            oscillator::NoiseModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(oscillator::NoiseModule::new(audio_config)))
             }),
         ),
         (
