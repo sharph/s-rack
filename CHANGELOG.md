@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 
+## Upcoming release
 
 * Add freeverb
 * Show black keys on sequencer
