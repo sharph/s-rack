@@ -1446,6 +1446,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "freeverb"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68732b37b380a5009de482bc6ad5707dbd98fad8b132ba452d84519bf4b8343e"
+
+[[package]]
 name = "futures"
 version = "0.3.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2859,6 +2865,7 @@ dependencies = [
  "eframe",
  "egui",
  "env_logger",
+ "freeverb",
  "futures",
  "getrandom",
  "hound",

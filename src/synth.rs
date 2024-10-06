@@ -1,5 +1,6 @@
 mod adsr;
 mod filter;
+mod freeverb;
 mod math;
 mod mixer;
 mod oscillator;
@@ -314,6 +315,7 @@ pub enum SynthModuleType {
     SampleModuleV0(sample::SampleModule),
     MathModuleV0(math::MathModule),
     NonLinearModuleV0(math::NonLinearModule),
+    FreeverbModuleV0(freeverb::FreeverbModule),
 }
 
 fn prep_for_serialization<T: SynthModule + Clone>(module: &T) -> T {
@@ -340,6 +342,7 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
         SynthModuleType::SampleModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MathModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::NonLinearModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::FreeverbModuleV0(m) => Arc::new(RwLock::new(m)),
     }
 }
 
@@ -403,6 +406,11 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     }
     if let Some(module) = module.downcast_ref::<math::NonLinearModule>() {
         return Ok(SynthModuleType::NonLinearModuleV0(prep_for_serialization(
+            &module,
+        )));
+    }
+    if let Some(module) = module.downcast_ref::<freeverb::FreeverbModule>() {
+        return Ok(SynthModuleType::FreeverbModuleV0(prep_for_serialization(
             &module,
         )));
     }
@@ -494,6 +502,12 @@ pub fn get_catalog() -> Vec<(String, Box<dyn Fn(&AudioConfig) -> SharedSynthModu
             math::NonLinearModule::get_name(),
             Box::new(|audio_config| {
                 Arc::new(RwLock::new(math::NonLinearModule::new(audio_config)))
+            }),
+        ),
+        (
+            freeverb::FreeverbModule::get_name(),
+            Box::new(|audio_config| {
+                Arc::new(RwLock::new(freeverb::FreeverbModule::new(audio_config)))
             }),
         ),
     ]
