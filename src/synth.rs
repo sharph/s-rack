@@ -310,7 +310,8 @@ pub enum SynthModuleType {
     PatternSequencerModuleV0(sequencer::PatternSequencerModule),
     ADSRModuleV0(adsr::ADSRModule),
     VCAModuleV0(vca::VCAModule),
-    MoogFilterModuleV0(filter::MoogFilterModule),
+    MoogFilterModuleV0(filter::MoogFilterModuleV0),
+    MoogFilterModuleV1(filter::MoogFilterModule),
     MonoMixerModuleV0(mixer::MonoMixerModule),
     SampleModuleV0(sample::SampleModule),
     MathModuleV0(math::MathModule),
@@ -337,7 +338,10 @@ pub fn enum_to_sharedsynthmodule(synthmoduleenum: SynthModuleType) -> SharedSynt
         SynthModuleType::PatternSequencerModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::ADSRModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::VCAModuleV0(m) => Arc::new(RwLock::new(m)),
-        SynthModuleType::MoogFilterModuleV0(m) => Arc::new(RwLock::new(m)),
+        SynthModuleType::MoogFilterModuleV0(m) => {
+            Arc::new(RwLock::new(filter::MoogFilterModule::from(m)))
+        }
+        SynthModuleType::MoogFilterModuleV1(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MonoMixerModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::SampleModuleV0(m) => Arc::new(RwLock::new(m)),
         SynthModuleType::MathModuleV0(m) => Arc::new(RwLock::new(m)),
@@ -385,7 +389,7 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
         )));
     }
     if let Some(module) = module.downcast_ref::<filter::MoogFilterModule>() {
-        return Ok(SynthModuleType::MoogFilterModuleV0(prep_for_serialization(
+        return Ok(SynthModuleType::MoogFilterModuleV1(prep_for_serialization(
             &module,
         )));
     }

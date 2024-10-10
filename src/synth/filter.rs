@@ -17,7 +17,9 @@ pub struct MoogFilterModule {
     audio_in: Option<(SharedSynthModule, u8)>,
     #[serde(skip)]
     cv_in: Option<(SharedSynthModule, u8)>,
-    buf: AudioBuffer,
+    lowpass: AudioBuffer,
+    bandpass: AudioBuffer,
+    highpass: AudioBuffer,
     freq: f32,
     res: f32,
     exp_amt: f32,
@@ -30,7 +32,9 @@ impl MoogFilterModule {
             id: uuid::Uuid::new_v4().to_string(),
             audio_in: None,
             cv_in: None,
-            buf: AudioBuffer::new(Some(audio_config.buffer_size)),
+            lowpass: AudioBuffer::new(Some(audio_config.buffer_size)),
+            bandpass: AudioBuffer::new(Some(audio_config.buffer_size)),
+            highpass: AudioBuffer::new(Some(audio_config.buffer_size)),
             freq: 0.2,
             res: 0.5,
             exp_amt: 0.5,
@@ -99,7 +103,9 @@ impl SynthModule for MoogFilterModule {
     }
 
     fn set_audio_config(&mut self, audio_config: &AudioConfig) {
-        self.buf.resize(audio_config.buffer_size);
+        self.lowpass.resize(audio_config.buffer_size);
+        self.bandpass.resize(audio_config.buffer_size);
+        self.highpass.resize(audio_config.buffer_size);
     }
 
     fn get_num_inputs(&self) -> u8 {
@@ -156,19 +162,21 @@ impl SynthModule for MoogFilterModule {
     }
 
     fn get_num_outputs(&self) -> u8 {
-        1
+        3
     }
 
     fn get_output(&self, output_idx: u8) -> Result<AudioBuffer, ()> {
         match output_idx {
-            0 => Ok(self.buf.clone()),
+            0 => Ok(self.lowpass.clone()),
+            1 => Ok(self.bandpass.clone()),
+            2 => Ok(self.highpass.clone()),
             _ => Err(()),
         }
     }
 
     fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
         match output_idx {
-            0 => Ok(None),
+            0..=2 => Ok(None),
             _ => Err(()),
         }
     }
@@ -181,24 +189,35 @@ impl SynthModule for MoogFilterModule {
             ],
             |bufs| {
                 let (audio_in, cv_in) = bufs.into_iter().collect_tuple().unwrap();
-                self.buf.with_write(|output| {
-                    let output = output.unwrap();
-                    for idx in 0..output.len() {
-                        let audio = match audio_in {
-                            Some(s) => s[idx],
-                            None => 0.0,
-                        };
-                        let cv = match cv_in {
-                            Some(s) => s[idx],
-                            None => 0.0,
-                        };
-                        (output[idx], _, _) = self.state.calc(
-                            audio,
-                            (self.freq + cv * self.exp_amt).max(0.0).min(0.9),
-                            self.res.max(0.0).min(1.0),
-                        );
-                    }
-                });
+                AudioBuffer::with_write_many(
+                    vec![
+                        self.lowpass.clone(),
+                        self.bandpass.clone(),
+                        self.highpass.clone(),
+                    ],
+                    |bufs| {
+                        let (lowpass, bandpass, highpass) = bufs
+                            .into_iter()
+                            .map(|o| o.unwrap())
+                            .collect_tuple()
+                            .unwrap();
+                        for idx in 0..lowpass.len() {
+                            let audio = match audio_in {
+                                Some(s) => s[idx],
+                                None => 0.0,
+                            };
+                            let cv = match cv_in {
+                                Some(s) => s[idx],
+                                None => 0.0,
+                            };
+                            (lowpass[idx], highpass[idx], bandpass[idx]) = self.state.calc(
+                                audio,
+                                (self.freq + cv * self.exp_amt).max(0.0).min(0.9),
+                                self.res.max(0.0).min(1.0),
+                            );
+                        }
+                    },
+                );
             },
         );
     }
@@ -228,5 +247,37 @@ impl SynthModule for MoogFilterModule {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MoogFilterModuleV0 {
+    id: String,
+    #[serde(skip)]
+    audio_in: Option<(SharedSynthModule, u8)>,
+    #[serde(skip)]
+    cv_in: Option<(SharedSynthModule, u8)>,
+    buf: AudioBuffer,
+    freq: f32,
+    res: f32,
+    exp_amt: f32,
+    state: InternalMoogFilterState,
+}
+
+impl From<MoogFilterModuleV0> for MoogFilterModule {
+    fn from(other: MoogFilterModuleV0) -> Self {
+        let buf_size = other.buf.get().unwrap().len();
+        Self {
+            id: other.id,
+            audio_in: other.audio_in,
+            cv_in: other.cv_in,
+            lowpass: other.buf,
+            bandpass: AudioBuffer::new(Some(buf_size)),
+            highpass: AudioBuffer::new(Some(buf_size)),
+            freq: other.freq,
+            res: other.res,
+            exp_amt: other.exp_amt,
+            state: other.state,
+        }
     }
 }
