@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "s-rack"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "by_address",
  "cpal",
