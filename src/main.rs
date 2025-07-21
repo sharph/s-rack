@@ -2,8 +2,6 @@
 use cpal::traits::DeviceTrait;
 use cpal::traits::HostTrait;
 use cpal::traits::StreamTrait;
-use eframe;
-use egui;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -48,7 +46,7 @@ impl AudioEngine {
             .map(|_| (0..audio_config.buffer_size).map(|_| 0.0).collect())
             .collect();
         let channels = usize::from(audio_config.channels);
-        let buffer_size = usize::from(audio_config.buffer_size);
+        let buffer_size = audio_config.buffer_size;
         let stream = device
             .build_output_stream(
                 &cpal::StreamConfig {

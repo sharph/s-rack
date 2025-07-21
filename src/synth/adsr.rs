@@ -1,10 +1,8 @@
 use super::{
     AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule, TransitionDetector,
 };
-use egui;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ADSRModule {

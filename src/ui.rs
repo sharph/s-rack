@@ -60,7 +60,7 @@ pub struct SynthModuleWorkspaceImpl {
 }
 
 impl SynthModuleWorkspaceImpl {
-    pub fn plan(&mut self) -> () {
+    pub fn plan(&mut self) {
         println!("start plan");
         match self.find_output() {
             Ok(output) => {
@@ -127,7 +127,7 @@ impl SynthModuleWorkspaceImpl {
         container.unpack_pos(|module_id, (x, y)| {
             self.modules_pos.insert(module_id, (x, y));
         });
-        container.unpack_modules(&mut self.modules, &self.audio_config.as_ref().unwrap());
+        container.unpack_modules(&mut self.modules, self.audio_config.as_ref().unwrap());
         container.unpack_connections(&mut self.modules)?;
         self.plan();
         Ok(())
@@ -164,12 +164,12 @@ impl SynthModuleWorkspace {
         }
     }
 
-    pub fn add_module(&self, module: synth::SharedSynthModule) -> () {
+    pub fn add_module(&self, module: synth::SharedSynthModule) {
         let mut writable = self.0.write().unwrap();
         writable.modules.push(module);
     }
 
-    pub fn delete_module(&self, module: synth::SharedSynthModule) -> () {
+    pub fn delete_module(&self, module: synth::SharedSynthModule) {
         let mut workspace = self.0.write().unwrap();
         // first, disconnect any inputs connected to this module
         for module_ref in workspace.modules.iter() {
@@ -223,23 +223,20 @@ impl SynthModuleWorkspace {
 
     pub fn save(&mut self, ctx: egui::Context, id: &egui::Id) {
         let inner_workspace = self.0.clone();
-        let id = id.clone();
+        let id = *id;
         run_async(async move {
             let file_dialog = AsyncFileDialog::new()
                 .add_filter("s-rack", &["srk"])
                 .set_file_name("Patch.srk")
                 .save_file()
                 .await;
-            match file_dialog {
-                Some(file) => {
-                    let buf;
-                    {
-                        let locked = inner_workspace.read().unwrap();
-                        buf = locked.serialize(ctx, &id);
-                    }
-                    let _ = file.write(&buf).await;
+            if let Some(file) = file_dialog {
+                let buf;
+                {
+                    let locked = inner_workspace.read().unwrap();
+                    buf = locked.serialize(ctx, &id);
                 }
-                None => (),
+                let _ = file.write(&buf).await;
             }
         });
     }
@@ -502,7 +499,7 @@ impl SynthModuleWorkspace {
                                     dragging = true;
                                 }
                                 if let Some((input_module, port)) =
-                                    input_module.as_ref().or_else(|| dragged_port.as_ref())
+                                    input_module.as_ref().or(dragged_port.as_ref())
                                 {
                                     let input_module = input_module.read().unwrap();
                                     let input_module_area_id =
@@ -535,8 +532,7 @@ impl SynthModuleWorkspace {
                                                                     + SYNTH_HANDLE_PADDING)),
                                                     ]
                                                     .into(),
-                                                ]
-                                                .into(),
+                                                ],
                                                 Stroke::new(
                                                     if dragging { 2.0 } else { 1.0 },
                                                     Color32::RED,

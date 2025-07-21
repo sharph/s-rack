@@ -2,7 +2,6 @@ use super::{AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthMo
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum MathOperation {

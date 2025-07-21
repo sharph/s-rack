@@ -10,7 +10,6 @@ mod sequencer;
 mod vca;
 
 use by_address::ByAddress;
-use egui;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -59,14 +58,14 @@ impl AudioBuffer {
     }
 
     pub fn with_read<T, F: FnOnce(Option<&[ControlVoltage]>) -> T>(&self, f: F) -> T {
-        if let Some(_) = &self.0 {
+        if self.0.is_some() {
             return f(Some(self.get().unwrap().as_ref()));
         }
         f(None)
     }
 
     pub fn with_write<T, F: FnOnce(Option<&mut [ControlVoltage]>) -> T>(&self, f: F) -> T {
-        if let Some(_) = &self.0 {
+        if self.0.is_some() {
             let mut buf = self.get_mut();
             let deref = buf.as_deref_mut().unwrap();
             return f(Some(deref));
@@ -112,7 +111,7 @@ fn is_loop(
     let mut to_search: Vec<ByAddress<SharedSynthModule>> = vec![ByAddress(module.clone())];
     let mut to_add: Vec<ByAddress<SharedSynthModule>> = vec![];
     let mut visited: HashSet<ByAddress<SharedSynthModule>> = HashSet::new();
-    while let Some(current_module) = to_search.iter().filter(|m| visited.get(m).is_none()).next() {
+    while let Some(current_module) = to_search.iter().find(|m| visited.get(m).is_none()) {
         visited.insert(current_module.clone());
         for dependency in edges.get(&current_module.clone()).unwrap() {
             if dependency.clone() == ByAddress(module.clone()) {
@@ -130,7 +129,7 @@ pub fn plan_execution(
     output: SharedSynthModule,
     all_modules: &Vec<SharedSynthModule>,
     plan: &mut Vec<SharedSynthModule>,
-) -> () {
+) {
     // topological sort of a graph with cycles -- first we need to break cycles
     let mut edges: HashMap<ByAddress<SharedSynthModule>, Vec<ByAddress<SharedSynthModule>>> =
         HashMap::new(); // K: sink, V: sources
@@ -196,9 +195,7 @@ pub fn plan_execution(
     // find leaves first, then search for nodes for which children have already been visited
     // find next node with no dependencies that haven't been visited
     while let Some(node) = to_search
-        .iter()
-        .map(|m| m.clone())
-        .filter(|m| !visited.contains(&ByAddress(m.clone())))
+        .iter().filter(|&m| !visited.contains(&ByAddress(m.clone()))).cloned()
         .filter(|m| {
             !edges
                 .get(&ByAddress(m.clone()))
@@ -249,7 +246,7 @@ pub trait SynthModule: Any {
     }
 
     #[inline]
-    fn resolve_input<'a>(&'a self, input_idx: u8) -> Result<AudioBuffer, ()> {
+    fn resolve_input(&self, input_idx: u8) -> Result<AudioBuffer, ()> {
         match self.get_input(input_idx)? {
             Some((src_module, src_port)) => Ok(src_module.read().unwrap().get_output(src_port)?),
             None => Ok(AudioBuffer::new(None)),
@@ -355,67 +352,67 @@ pub fn any_module_to_enum(module: Box<&dyn SynthModule>) -> Result<SynthModuleTy
     let module = module.as_any();
     if let Some(module) = module.downcast_ref::<output::OutputModule>() {
         return Ok(SynthModuleType::OutputModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<oscillator::OscillatorModule>() {
         return Ok(SynthModuleType::OscillatorModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<oscillator::NoiseModule>() {
         return Ok(SynthModuleType::NoiseModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<sequencer::GridSequencerModule>() {
         return Ok(SynthModuleType::GridSequencerModuleV1(
-            prep_for_serialization(&module),
+            prep_for_serialization(module),
         ));
     }
     if let Some(module) = module.downcast_ref::<sequencer::PatternSequencerModule>() {
         return Ok(SynthModuleType::PatternSequencerModuleV0(
-            prep_for_serialization(&module),
+            prep_for_serialization(module),
         ));
     }
     if let Some(module) = module.downcast_ref::<adsr::ADSRModule>() {
         return Ok(SynthModuleType::ADSRModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<vca::VCAModule>() {
         return Ok(SynthModuleType::VCAModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<filter::MoogFilterModule>() {
         return Ok(SynthModuleType::MoogFilterModuleV1(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<mixer::MonoMixerModule>() {
         return Ok(SynthModuleType::MonoMixerModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<sample::SampleModule>() {
         return Ok(SynthModuleType::SampleModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<math::MathModule>() {
         return Ok(SynthModuleType::MathModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<math::NonLinearModule>() {
         return Ok(SynthModuleType::NonLinearModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     if let Some(module) = module.downcast_ref::<freeverb::FreeverbModule>() {
         return Ok(SynthModuleType::FreeverbModuleV0(prep_for_serialization(
-            &module,
+            module,
         )));
     }
     Err(())
@@ -578,7 +575,7 @@ mod tests {
                 .map(|m| indexes.get(&ByAddress(m.clone())).unwrap())
                 .enumerate()
             {
-                println!("{} -> {}", idx, mapping);
+                println!("{idx} -> {mapping}");
             }
             println!("o -> {}", indexes.get(&ByAddress(out.clone())).unwrap());
             assert!(

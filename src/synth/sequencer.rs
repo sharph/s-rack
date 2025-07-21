@@ -1,11 +1,10 @@
 use super::{
     AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule, TransitionDetector,
 };
-use egui::{self, output};
+use egui::{self};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 const GRID_CELL_SIZE: f32 = 7.0;
 const GRID_CELL_PADDING: f32 = 1.0;
@@ -143,7 +142,7 @@ impl SynthModule for GridSequencerModule {
             .into(),
         );
         let clicked = ui.interact(space_rect, id, egui::Sense::click()).clicked();
-        for row in (0..num_rows).into_iter().rev() {
+        for row in (0..num_rows).rev() {
             for col in 0..self.sequence.len() {
                 let top_left = egui::Pos2::new(
                     space_rect.min.x + (col as f32 * (GRID_CELL_SIZE + GRID_CELL_PADDING)),
@@ -167,20 +166,20 @@ impl SynthModule for GridSequencerModule {
                 if usize::from(self.current_step) == col {
                     color = egui::Color32::RED;
                 }
-                if self.sequence[usize::from(col)] == Some((row, true)) {
+                if self.sequence[col] == Some((row, true)) {
                     color = egui::Color32::BLACK;
                 }
-                if self.sequence[usize::from(col)] == Some((row, false)) {
+                if self.sequence[col] == Some((row, false)) {
                     color = egui::Color32::BLUE;
                 }
                 ui.painter().rect_filled(rect, 1.0, color);
                 if clicked && ui.rect_contains_pointer(rect) {
-                    if self.sequence[usize::from(col)] == Some((row, true)) {
-                        self.sequence[usize::from(col)] = Some((row, false));
-                    } else if self.sequence[usize::from(col)] == Some((row, false)) {
-                        self.sequence[usize::from(col)] = None;
+                    if self.sequence[col] == Some((row, true)) {
+                        self.sequence[col] = Some((row, false));
+                    } else if self.sequence[col] == Some((row, false)) {
+                        self.sequence[col] = None;
                     } else {
-                        self.sequence[usize::from(col)] = Some((row, true));
+                        self.sequence[col] = Some((row, true));
                     }
                 }
             }
@@ -591,7 +590,7 @@ impl SynthModule for PatternSequencerModule {
             return Ok(Some("Sync".to_string()));
         }
         if output_idx < self.gate_outs.len() as u8 {
-            return Ok(Some(format!("{}", output_idx)));
+            return Ok(Some(format!("{output_idx}")));
         }
         Err(())
     }

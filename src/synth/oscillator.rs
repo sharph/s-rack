@@ -1,12 +1,10 @@
 use super::{
     AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule, TransitionDetector,
 };
-use egui;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::f64::consts::PI;
-use uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OscillatorModule {
@@ -150,8 +148,8 @@ impl SynthModule for OscillatorModule {
                                     0.0
                                 };
 
-                            self.pos = self.pos + delta;
-                            self.pos = self.pos % 1.0;
+                            self.pos += delta;
+                            self.pos %= 1.0;
                         }
                     },
                 );
@@ -390,6 +388,6 @@ impl SynthModule for NoiseModule {
     }
 
     fn as_any(&self) -> &dyn Any {
-        return self;
+        self
     }
 }

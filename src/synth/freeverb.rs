@@ -3,7 +3,6 @@ use freeverb::Freeverb;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct FreeverbModule {

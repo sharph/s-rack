@@ -1,9 +1,7 @@
 use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
-use egui;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 /// Moog Filter based on
 /// https://ccrma.stanford.edu/~stilti/papers/moogvcf.pdf
@@ -70,10 +68,10 @@ impl InternalMoogFilterState {
         }
         let input = input - (self.q * self.b[4]);
         let mut t1;
-        let t2;
+        
         t1 = self.b[1];
         self.b[1] = (input + self.b[0]) * self.p - self.b[1] * self.f;
-        t2 = self.b[2];
+        let t2 = self.b[2];
         self.b[2] = (self.b[1] + t1) * self.p - self.b[2] * self.f;
         t1 = self.b[3];
         self.b[3] = (self.b[2] + t2) * self.p - self.b[3] * self.f;

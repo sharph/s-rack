@@ -11,7 +11,6 @@ use std::any::Any;
 use std::error::Error;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
-use uuid;
 
 #[derive(Default, Serialize, Deserialize)]
 struct WaveBox {
@@ -225,7 +224,7 @@ impl SynthModule for SampleModule {
                             self.pos = 0.0;
                             self.playing = false;
                         }
-                        if wavebox.samples.len() > 0 {
+                        if !wavebox.samples.is_empty() {
                             *out = wavebox.samples[self.pos as usize];
                         } else {
                             *out = 0.0;
@@ -248,13 +247,10 @@ impl SynthModule for SampleModule {
                     .add_filter("audio", &["wav"])
                     .pick_file()
                     .await;
-                match file {
-                    Some(file) => {
-                        let data = file.read().await;
-                        let mut unlocked_wavebox = wavebox.lock().unwrap();
-                        let _ = unlocked_wavebox.load(data);
-                    }
-                    None => (),
+                if let Some(file) = file {
+                    let data = file.read().await;
+                    let mut unlocked_wavebox = wavebox.lock().unwrap();
+                    let _ = unlocked_wavebox.load(data);
                 }
             });
         }

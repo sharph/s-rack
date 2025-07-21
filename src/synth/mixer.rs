@@ -1,9 +1,7 @@
 use super::{AudioBuffer, AudioConfig, SharedSynthModule, SynthModule};
-use egui;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MonoMixerModule {
@@ -103,7 +101,6 @@ impl SynthModule for MonoMixerModule {
     fn calc(&mut self) {
         AudioBuffer::with_read_many(
             (0..self.get_num_inputs())
-                .into_iter()
                 .map(|n| self.resolve_input(n).unwrap())
                 .collect_vec(),
             |bufs| {
