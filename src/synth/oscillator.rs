@@ -373,11 +373,7 @@ impl SynthModule for NoiseModule {
     }
 
     fn get_output_label(&self, output_idx: u8) -> Result<Option<String>, ()> {
-        if output_idx == 0 {
-            Ok(None)
-        } else {
-            Err(())
-        }
+        if output_idx == 0 { Ok(None) } else { Err(()) }
     }
 
     fn disconnect_input(&mut self, _input_idx: u8) -> Result<(), ()> {

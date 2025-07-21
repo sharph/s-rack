@@ -205,7 +205,7 @@ pub fn plan_execution(
                 .unwrap()
                 .iter()
                 .any(|d| !visited.contains(d)) // any will return true when there are unvisited
-                                               // dependencies
+            // dependencies
         })
         .next()
     {

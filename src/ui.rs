@@ -62,18 +62,21 @@ pub struct SynthModuleWorkspaceImpl {
 impl SynthModuleWorkspaceImpl {
     pub fn plan(&mut self) -> () {
         println!("start plan");
-        if let Ok(output) = self.find_output() {
-            synth::plan_execution(
-                output.clone(),
-                &self.modules,
-                &mut self.plan.lock().unwrap(),
-            );
-            let mut output_ref = self.output.lock().unwrap();
-            *output_ref = Some(output);
-        } else {
-            self.plan.lock().unwrap().clear();
-            let mut output_ref = self.output.lock().unwrap();
-            *output_ref = None;
+        match self.find_output() {
+            Ok(output) => {
+                synth::plan_execution(
+                    output.clone(),
+                    &self.modules,
+                    &mut self.plan.lock().unwrap(),
+                );
+                let mut output_ref = self.output.lock().unwrap();
+                *output_ref = Some(output);
+            }
+            _ => {
+                self.plan.lock().unwrap().clear();
+                let mut output_ref = self.output.lock().unwrap();
+                *output_ref = None;
+            }
         }
         println!("end plan");
     }

@@ -202,11 +202,7 @@ impl NonLinearModule {
 
     #[inline]
     fn operation(&self, a: ControlVoltage, b: ControlVoltage) -> ControlVoltage {
-        if a > 0.0 {
-            a.powf(b)
-        } else {
-            -(-a).powf(b)
-        }
+        if a > 0.0 { a.powf(b) } else { -(-a).powf(b) }
     }
 }
 

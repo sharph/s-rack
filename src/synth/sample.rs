@@ -2,7 +2,7 @@ use super::{
     AudioBuffer, AudioConfig, ControlVoltage, SharedSynthModule, SynthModule, TransitionDetector,
 };
 use crate::ui::run_async;
-use cpal::{Sample, I24};
+use cpal::{I24, Sample};
 use hound::{SampleFormat, WavReader};
 use itertools::Itertools;
 use rfd::AsyncFileDialog;
