@@ -19,7 +19,7 @@ eula = false
 cpal = { version = "0.15.3", features = ["wasm-bindgen"] }
 eframe = { version = "0.28.1", features = ["glow"] }
 egui = "0.28.1"
-uuid = { version = "1.10.0", features = ["v4"] }
+uuid = { version = "1.10.0", features = ["v4", "js"] }
 getrandom = { version = "0.2", features = ["js"] }
 log = "0.4.22"
 itertools = "0.13.0"
